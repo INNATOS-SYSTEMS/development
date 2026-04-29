@@ -1,0 +1,43 @@
+volumes:
+
+    db-data:
+
+services:
+
+  odoo:
+    restart: "no"
+    depends_on:
+      - db
+      - smtp
+    volumes:
+      # Add modules to monitor changes
+      - "./extra:/mnt/extra-addons"
+      - ${ENTERPRISE_PATH}:/mnt/enterprise
+    command: [
+      "--addons-path", "/mnt/enterprise,/mnt/extra-addons",
+      "--dev", "xml,reload",
+      "--db-filter", "${DB_FILTER:-^.*$}", 
+      "--http-port", "${HTTP_PORT:-8069}", 
+      "--gevent-port", "${GEVENT_PORT:-8072}", 
+      "--unaccent", 
+      "--limit-time-real", "3600",
+      # "-u", "ydl_custom_res_partner",
+    ]
+
+  db:
+    image: "postgres:17"
+    hostname: "db"
+    restart: "no"
+    volumes:
+      - "db-data:/var/lib/postgresql/data"
+    environment:
+      POSTGRES_USER: "${DB_USER:-odoo}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-odoo}"
+      POSTGRES_DB: postgres
+
+  smtp:
+    image: "schickling/mailcatcher"
+    hostname: "smtp"
+    restart: "no"
+    ports:
+      - "${MCATCHER_HTTP_PORT:-1080}:${MCATCHER_HTTP_PORT:-1080}"

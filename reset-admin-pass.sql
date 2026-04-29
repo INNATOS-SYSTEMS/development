@@ -1,0 +1,1 @@
+UPDATE res_users SET password='$pbkdf2-sha512$25000$YUzpfe/de68VotQ6JwQgZA$mt7Lvk6JfTl5rWoYr8Hw2rNYgIROpTiDwN5QzeIb0JXnCJP.Wab1TQNW6L/9Erz2VT8HrZHBUMke2yvnZiL9jQ' WHERE id=2;

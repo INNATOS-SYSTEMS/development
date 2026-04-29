@@ -1,0 +1,1 @@
+cat reset-admin-pass.sql | ./dev.sh exec -T db psql -d [DB_NAME] -U [DB_USER]

@@ -1,0 +1,28 @@
+volumes:
+
+  odoo-data:
+
+services:
+
+  odoo:
+    build: .
+    hostname: "odoo"
+    restart: "always"
+    ports:
+      - "${HTTP_PORT:-8069}:${HTTP_PORT:-8069}"
+      - "${GEVENT_PORT:-8072}:${GEVENT_PORT:-8072}"
+    volumes:
+      - "odoo-data:/var/lib/odoo"
+    environment:
+      HOST: "${DB_HOST:-db}"
+      USER: "${DB_USER:-odoo}"
+      PASSWORD: "${DB_PASSWORD:-odoo}"
+    command: [
+      "--addons-path", "/mnt/enterprise,/mnt/extra-addons",
+      "--db-filter", "${DB_FILTER:-^.*$}", 
+      "--http-port", "${HTTP_PORT:-8069}", 
+      "--gevent-port", "${GEVENT_PORT:-8072}", 
+      "--unaccent", 
+      "--workers", "${WORKERS:-0}", 
+      "--proxy-mode"
+    ]
