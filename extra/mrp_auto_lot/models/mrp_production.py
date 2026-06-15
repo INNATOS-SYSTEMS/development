@@ -7,15 +7,65 @@ class MrpProduction(models.Model):
 
     def _prepare_stock_lot_values(self):
         self.ensure_one()
-        name = self.env['ir.sequence'].next_by_code('mrp_auto_lot.global.lot')
-        if not name:
-            raise UserError(_("La secuencia global de lotes (mrp_auto_lot.global.lot) no está configurada."))
+        # Identificar si es Caso 1: exactamente un único lote de componente con fecha de caducidad
+        raw_move_lines = self.move_raw_ids.move_line_ids.filtered(lambda ml: ml.lot_id)
+        component_lots = raw_move_lines.mapped('lot_id')
+        valid_component_lots = component_lots.filtered(lambda l: l.expiration_date)
+
+        is_case_1 = len(valid_component_lots) == 1
+        existing_lot = False
+        if is_case_1:
+            target_name = valid_component_lots[0].name
+            existing_lot = self.env['stock.lot'].search([
+                ('name', '=', target_name),
+                ('product_id', '=', self.product_id.id),
+                ('company_id', 'in', [self.company_id.id, False])
+            ], limit=1)
+
+        # Si es Caso 1 y ya existe el lote, no consumimos la secuencia global
+        if is_case_1 and existing_lot:
+            name = existing_lot.name
+            seq_name = existing_lot.global_sequence_val
+        else:
+            # Consumir la secuencia global
+            seq_name = self.env['ir.sequence'].next_by_code('mrp_auto_lot.global.lot')
+            if not seq_name:
+                raise UserError(_("La secuencia global de lotes (mrp_auto_lot.global.lot) no está configurada."))
+            if is_case_1:
+                name = valid_component_lots[0].name
+            else:
+                name = seq_name
+
         return {
             'product_id': self.product_id.id,
             'name': name,
-            'global_sequence_val': name,
+            'global_sequence_val': seq_name,
             'production_id': self.id,
         }
+
+    def action_generate_serial(self):
+        self.ensure_one()
+        # Identificar si es Caso 1
+        raw_move_lines = self.move_raw_ids.move_line_ids.filtered(lambda ml: ml.lot_id)
+        component_lots = raw_move_lines.mapped('lot_id')
+        valid_component_lots = component_lots.filtered(lambda l: l.expiration_date)
+
+        if len(valid_component_lots) == 1:
+            target_name = valid_component_lots[0].name
+            existing_lot = self.env['stock.lot'].search([
+                ('name', '=', target_name),
+                ('product_id', '=', self.product_id.id),
+                ('company_id', 'in', [self.company_id.id, False])
+            ], limit=1)
+            if existing_lot:
+                # Asignar directamente el lote existente sin generar uno nuevo
+                if hasattr(self, 'lot_producing_id'):
+                    self.write({'lot_producing_id': existing_lot.id})
+                if hasattr(self, 'lot_producing_ids'):
+                    self.write({'lot_producing_ids': [(4, existing_lot.id)]})
+                return
+
+        return super(MrpProduction, self).action_generate_serial()
 
 
     suggest_lot_split = fields.Boolean(
