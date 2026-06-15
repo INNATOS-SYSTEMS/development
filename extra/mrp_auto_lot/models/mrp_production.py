@@ -18,35 +18,46 @@ class MrpProduction(models.Model):
         }
 
 
-    def action_assign(self):
-        res = super(MrpProduction, self).action_assign()
-        for production in self:
-            split_data = production._get_formulated_lots_split_data()
-            if split_data:
-                # Crear el wizard transitorio con el contexto de bloqueo de recalculación
-                wizard = self.env['mrp.production.split'].with_context(custom_split_quantities=True).create({
-                    'production_id': production.id,
-                    'warning_message': split_data['warning_message'],
-                    'production_detailed_vals_ids': [
-                        (0, 0, {
-                            'quantity': split_data['first_finished'],
-                            'user_id': production.user_id.id or self.env.user.id,
-                            'date': production.date_start,
-                        }),
-                        (0, 0, {
-                            'quantity': split_data['remaining_qty'],
-                            'user_id': production.user_id.id or self.env.user.id,
-                            'date': production.date_start,
-                        })
-                    ]
-                })
+    suggest_lot_split = fields.Boolean(
+        string="Sugerir división de lotes",
+        compute="_compute_suggest_lot_split",
+        store=False
+    )
 
-                # Obtener la accion de ventana nativa de Odoo para dividir MOs
-                action = self.env['ir.actions.actions']._for_xml_id('mrp.action_mrp_production_split')
-                action['res_id'] = wizard.id
-                action['context'] = {'custom_split_quantities': True}
-                return action
-        return res
+    @api.depends('state')
+    def _compute_suggest_lot_split(self):
+        for production in self:
+            production.suggest_lot_split = production.state == 'confirmed'
+
+    def action_suggest_lot_split(self):
+        self.ensure_one()
+        split_data = self._get_formulated_lots_split_data()
+        
+        if not split_data:
+            raise UserError(_("No hay sugerencia de división para esta orden de producción."))
+        
+        # Si aplican las reglas, se sugiere el aviso de trazabilidad y se pre-arma
+        wizard = self.env['mrp.production.split'].with_context(custom_split_quantities=True).create({
+            'production_id': self.id,
+            'warning_message': split_data['warning_message'],
+            'production_detailed_vals_ids': [
+                (0, 0, {
+                    'quantity': split_data['first_finished'],
+                    'user_id': self.user_id.id or self.env.user.id,
+                    'date': self.date_start,
+                }),
+                (0, 0, {
+                    'quantity': split_data['remaining_qty'],
+                    'user_id': self.user_id.id or self.env.user.id,
+                    'date': self.date_start,
+                })
+            ]
+        })
+        
+        action = self.env['ir.actions.actions']._for_xml_id('mrp.action_mrp_production_split')
+        action['res_id'] = wizard.id
+        action['context'] = {'custom_split_quantities': True}
+        return action
 
     def _get_formulated_lots_split_data(self):
         self.ensure_one()
