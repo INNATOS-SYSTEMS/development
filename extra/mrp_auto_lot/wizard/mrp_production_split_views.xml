@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_mrp_production_split_form_inherit" model="ir.ui.view">
+        <field name="name">mrp.production.split.form.inherit</field>
+        <field name="model">mrp.production.split</field>
+        <field name="inherit_id" ref="mrp.view_mrp_production_split_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//group" position="before">
+                <div class="alert alert-warning d-flex align-items-center" role="alert" invisible="not warning_message" style="margin-bottom: 20px; font-size: 14px;">
+                    <i class="fa fa-exclamation-triangle me-2" style="font-size: 20px;"/>
+                    <field name="warning_message" widget="html" readonly="1" class="mb-0"/>
+                </div>
+            </xpath>
+        </field>
+    </record>
+</odoo>
