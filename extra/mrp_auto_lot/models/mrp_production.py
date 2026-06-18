@@ -99,6 +99,7 @@ class MrpProduction(models.Model):
         for detail in split_data['split_details']:
             detailed_vals.append((0, 0, {
                 'quantity': detail['quantity'],
+                'lot_id': detail['lot'].id,  # CAMBIO: Asociamos el lote del componente de esta partición
                 'user_id': self.user_id.id or self.env.user.id,
                 'date': self.date_start,
             }))
@@ -111,7 +112,17 @@ class MrpProduction(models.Model):
         
         action = self.env['ir.actions.actions']._for_xml_id('mrp.action_mrp_production_split')
         action['res_id'] = wizard.id
-        action['context'] = {'custom_split_quantities': True}
+        action['context'] = {
+            'custom_split_quantities': True,
+            'split_details': [
+                {
+                    'lot_id': detail['lot'].id,
+                    'quantity': detail['quantity'],
+                }
+                for detail in split_data['split_details']
+            ],
+        }
+
         return action
 
     # CAMBIO: Se redefinió la lógica de filtrado de este método.
