@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Herencia de Formulario de Producto -->
+    <record id="product_normal_form_view_inherit_plows" model="ir.ui.view">
+        <field name="name">product.product.form.inherit.plows</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_normal_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Plows POS" name="plows_pos_sync">
+                    <group>
+                        <group string="Identificadores">
+                            <field name="x_id_pos" readonly="1"/>
+                        </group>
+                        <group string="Auditoría de Sincronización">
+                            <field name="x_last_sync_date" readonly="1"/>
+                            <field name="x_sync_status" decoration-success="x_sync_status == 'synced'" decoration-warning="x_sync_status == 'desynced'" widget="badge"/>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Acción para Productos Sincronizados de POS -->
+    <record id="action_plows_pos_products" model="ir.actions.act_window">
+        <field name="name">Productos</field>
+        <field name="res_model">product.product</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="domain">[('x_id_pos', '!=', False)]</field>
+        <field name="context">{'search_default_filter_to_sell': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay productos sincronizados con Plows POS.
+            </p>
+            <p>
+                Los productos creados en el POS aparecerán aquí una vez ejecutada la sincronización.
+            </p>
+        </field>
+    </record>
+</odoo>

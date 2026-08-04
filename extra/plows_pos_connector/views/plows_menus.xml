@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Estructura de Menús -->
+
+    <!-- Menú Raíz Principal -->
+    <menuitem id="menu_plows_pos_root"
+              name="Plows POS"
+              web_icon="plows_pos_connector,static/description/icon.png"
+              sequence="15"/>
+
+    <!-- Tablero (OWL Dashboard) -->
+    <menuitem id="menu_plows_pos_dashboard"
+              name="Tablero"
+              parent="menu_plows_pos_root"
+              action="action_plows_pos_dashboard"
+              sequence="10"/>
+
+    <!-- Submenú Operaciones -->
+    <menuitem id="menu_plows_pos_operations"
+              name="Operaciones"
+              parent="menu_plows_pos_root"
+              sequence="20"/>
+
+    <!-- Operaciones → Ingresos (Cortes de Caja sincronizados) -->
+    <menuitem id="menu_plows_pos_incomes_action"
+              name="Ingresos"
+              parent="menu_plows_pos_operations"
+              action="action_plows_pos_closure"
+              sequence="10"/>
+
+    <!-- Operaciones → Egresos (stub para fase futura) -->
+    <menuitem id="menu_plows_pos_expenses_action"
+              name="Egresos"
+              parent="menu_plows_pos_operations"
+              action="action_plows_pos_expense"
+              sequence="20"/>
+
+    <!-- Operaciones → Inventario (stub para fase futura) -->
+    <menuitem id="menu_plows_pos_inventory_action"
+              name="Inventario"
+              parent="menu_plows_pos_operations"
+              action="action_plows_pos_inventory"
+              sequence="30"/>
+
+    <!-- Submenú Catálogos POS -->
+    <menuitem id="menu_plows_pos_catalogs"
+              name="Catálogos"
+              parent="menu_plows_pos_root"
+              sequence="30"/>
+
+    <menuitem id="menu_plows_pos_products_action"
+              name="Productos"
+              parent="menu_plows_pos_catalogs"
+              action="action_plows_pos_products"
+              sequence="10"/>
+
+    <menuitem id="menu_plows_pos_partners_action"
+              name="Contactos"
+              parent="menu_plows_pos_catalogs"
+              action="action_plows_pos_partners"
+              sequence="20"/>
+
+    <menuitem id="menu_plows_pos_locations_action"
+              name="Almacenes"
+              parent="menu_plows_pos_catalogs"
+              action="action_plows_pos_locations"
+              sequence="30"/>
+
+    <menuitem id="menu_plows_pos_employees_action"
+              name="Personal"
+              parent="menu_plows_pos_catalogs"
+              action="action_plows_pos_employees"
+              sequence="40"/>
+
+    <!-- Submenú Monitoreo -->
+    <menuitem id="menu_plows_pos_monitoring"
+              name="Monitoreo"
+              parent="menu_plows_pos_root"
+              sequence="40"/>
+
+    <menuitem id="menu_plows_pos_sync_job_action"
+              name="Historial de Sincronización"
+              parent="menu_plows_pos_monitoring"
+              action="action_plows_pos_sync_job"
+              sequence="10"/>
+
+    <menuitem id="menu_plows_pos_sync_log_action"
+              name="Logs de Sincronización"
+              parent="menu_plows_pos_monitoring"
+              action="action_plows_pos_sync_log"
+              sequence="20"/>
+
+    <!-- Submenú Configuración -->
+    <menuitem id="menu_plows_pos_config"
+              name="Configuración"
+              parent="menu_plows_pos_root"
+              groups="group_plows_pos_manager"
+              sequence="50"/>
+
+    <menuitem id="menu_plows_pos_settings_action"
+              name="Ajustes de Conexión"
+              parent="menu_plows_pos_config"
+              action="action_plows_pos_config"
+              sequence="10"/>
+
+    <menuitem id="menu_plows_pos_tax_rule_action"
+              name="Impuestos"
+              parent="menu_plows_pos_config"
+              action="action_plows_pos_tax_rule"
+              sequence="20"/>
+
+    <menuitem id="menu_plows_pos_payment_rule_action"
+              name="Métodos de Pago"
+              parent="menu_plows_pos_config"
+              action="action_plows_pos_payment_rule"
+              sequence="30"/>
+</odoo>

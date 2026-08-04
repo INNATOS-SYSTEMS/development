@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Vista List/Tree -->
+    <record id="view_plows_pos_closure_tree" model="ir.ui.view">
+        <field name="name">plows.pos.closure.list</field>
+        <field name="model">plows.pos.closure</field>
+        <field name="arch" type="xml">
+            <list string="Ingresos / Cortes de Caja" create="0" decoration-success="state == 'synced'" decoration-warning="state == 'draft'" decoration-danger="state == 'failed'">
+                <field name="name"/>
+                <field name="x_id_pos"/>
+                <field name="session_number"/>
+                <field name="location_id"/>
+                <field name="closing_date"/>
+                <field name="closing_time"/>
+                <field name="responsible_id"/>
+                <field name="total_sales" sum="Ventas Totales"/>
+                <field name="total_shortage" sum="Faltantes Totales"/>
+                <field name="state" widget="badge"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Vista Formulario -->
+    <record id="view_plows_pos_closure_form" model="ir.ui.view">
+        <field name="name">plows.pos.closure.form</field>
+        <field name="model">plows.pos.closure</field>
+        <field name="arch" type="xml">
+            <form string="Corte de Caja">
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,synced,failed"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Información General">
+                            <field name="x_id_pos" readonly="1"/>
+                            <field name="session_number" readonly="1"/>
+                            <field name="location_id" readonly="1"/>
+                            <field name="closing_date" readonly="1"/>
+                            <field name="closing_time" readonly="1"/>
+                            <field name="responsible_id" readonly="1"/>
+                        </group>
+                        <group string="Desglose Financiero">
+                            <field name="total_sales" readonly="1"/>
+                            <field name="total_refunds" readonly="1"/>
+                            <field name="total_shortage" readonly="1"/>
+                            <field name="shortage_notes" readonly="1" invisible="not total_shortage"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Totales por Método de Pago" name="payment_totals">
+                            <group>
+                                <group>
+                                    <field name="cash_total" readonly="1"/>
+                                    <field name="card_total" readonly="1"/>
+                                    <field name="transfers_total" readonly="1"/>
+                                </group>
+                                <group>
+                                    <field name="checks_total" readonly="1"/>
+                                    <field name="other_total" readonly="1"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Tickets de Venta" name="tickets">
+                            <field name="ticket_ids" readonly="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="date_order"/>
+                                    <field name="partner_id"/>
+                                    <field name="amount_total"/>
+                                    <field name="state"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Movimientos de Caja Chica" name="movements">
+                            <field name="movement_ids" readonly="1">
+                                <list>
+                                    <field name="folio"/>
+                                    <field name="date"/>
+                                    <field name="movement_type"/>
+                                    <field name="amount"/>
+                                    <field name="notes"/>
+                                    <field name="journal_entry_id"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Observaciones" name="notes">
+                            <field name="notes" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Vista de Búsqueda -->
+    <record id="view_plows_pos_closure_search" model="ir.ui.view">
+        <field name="name">plows.pos.closure.search</field>
+        <field name="model">plows.pos.closure</field>
+        <field name="arch" type="xml">
+            <search string="Buscar Cortes de Caja">
+                <field name="name"/>
+                <field name="x_id_pos"/>
+                <field name="session_number"/>
+                <field name="location_id"/>
+                <field name="responsible_id"/>
+                <filter string="Borrador" name="state_draft" domain="[('state', '=', 'draft')]"/>
+                <filter string="Sincronizados" name="state_synced" domain="[('state', '=', 'synced')]"/>
+                <filter string="Fallados" name="state_failed" domain="[('state', '=', 'failed')]"/>
+                <group>
+                    <filter string="Almacén" name="group_by_location" context="{'group_by':'location_id'}"/>
+                    <filter string="Responsable" name="group_by_responsible" context="{'group_by':'responsible_id'}"/>
+                    <filter string="Fecha" name="group_by_date" context="{'group_by':'closing_date'}"/>
+                    <filter string="Estado" name="group_by_state" context="{'group_by':'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Acción de Ventana -->
+    <record id="action_plows_pos_closure" model="ir.actions.act_window">
+        <field name="name">Ingresos</field>
+        <field name="res_model">plows.pos.closure</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_plows_pos_closure_search"/>
+        <field name="context">{'create': False}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay cortes de caja sincronizados aún.
+            </p>
+            <p>
+                Los registros de ingresos (cortes de caja) se generan automáticamente al ejecutar una sincronización.
+            </p>
+        </field>
+    </record>
+</odoo>

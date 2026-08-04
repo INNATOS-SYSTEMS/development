@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_plows" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.plows</field>
+        <field name="model">res.config.settings</field>
+        <field name="priority" eval="90"/>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Plows POS" string="Plows POS" name="plows_pos_connector">
+                    <block title="Conexión de Plows POS" string="Conexión de Plows POS">
+                        <setting string="Configuración de API" help="Defina los parámetros para conectar con la API de Plows POS.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="plows_pos_api_url" class="col-lg-3 o_light_label"/>
+                                    <field name="plows_pos_api_url" class="col-lg-9"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="plows_pos_tenant_id" class="col-lg-3 o_light_label"/>
+                                    <field name="plows_pos_tenant_id" class="col-lg-9"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="plows_pos_api_token" class="col-lg-3 o_light_label"/>
+                                    <field name="plows_pos_api_token" password="True" class="col-lg-9"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="plows_pos_token_status" class="col-lg-3 o_light_label"/>
+                                    <field name="plows_pos_token_status" class="col-lg-9"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="plows_pos_token_generated_at" class="col-lg-3 o_light_label"/>
+                                    <field name="plows_pos_token_generated_at" class="col-lg-9"/>
+                                </div>
+                                <div class="mt16">
+                                    <button name="action_generate_token" string="Generar Token" type="object" class="btn btn-primary"/>
+                                    <button name="action_test_token_connection" string="Probar Conexión" type="object" class="btn btn-secondary ml8"/>
+                                </div>
+                            </div>
+                        </setting>
+
+
+                        <setting string="Cliente por Defecto" help="Cliente utilizado para registrar tickets de venta consolidada sin factura.">
+                            <field name="plows_pos_default_customer_id"/>
+                        </setting>
+                    </block>
+
+                    <block title="Reglas de Sincronización Automática" string="Automatizaciones">
+                        <setting string="Tamaño de Lote" help="Cantidad de registros procesados por página durante la sincronización de catálogos (predeterminado: 100).">
+                            <field name="plows_sync_batch_size"/>
+                        </setting>
+                        <setting string="Sincronizar Catálogos" help="Ejecutar cron diario para sincronizar productos, clientes, etc.">
+                            <field name="plows_pos_sync_catalogs_daily"/>
+                        </setting>
+                        <setting string="Sincronizar Transacciones" help="Ejecutar cron por hora para bajar ingresos y egresos.">
+                            <field name="plows_pos_sync_transactions_hourly"/>
+                        </setting>
+                        <setting string="Sincronizar Inventario" help="Ejecutar cron nocturno para aplicar cierres y valoraciones de inventario.">
+                            <field name="plows_pos_sync_inventory_nightly"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_plows_pos_config" model="ir.actions.act_window">
+        <field name="name">Ajustes Plows</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="context">{'module': 'plows_pos_connector'}</field>
+    </record>
+</odoo>

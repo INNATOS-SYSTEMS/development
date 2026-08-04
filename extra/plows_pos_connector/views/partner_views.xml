@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Herencia de Formulario de Partner -->
+    <record id="view_partner_form_inherit_plows" model="ir.ui.view">
+        <field name="name">res.partner.form.inherit.plows</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Plows POS" name="plows_pos_partner">
+                    <group>
+                        <group string="Sincronización">
+                            <field name="x_id_pos" readonly="1"/>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Acción para Clientes/Proveedores POS -->
+    <record id="action_plows_pos_partners" model="ir.actions.act_window">
+        <field name="name">Contactos</field>
+        <field name="res_model">res.partner</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="domain">[('x_id_pos', '!=', False)]</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay socios de negocio (clientes/proveedores) sincronizados.
+            </p>
+        </field>
+    </record>
+</odoo>

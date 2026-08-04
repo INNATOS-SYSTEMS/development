@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="module_category_plows_pos" model="ir.module.category">
+        <field name="name">Plows POS</field>
+        <field name="description">Categoría de accesos para el Conector de Plows POS</field>
+        <field name="sequence">20</field>
+    </record>
+
+    <record id="res_groups_privilege_plows_pos" model="res.groups.privilege">
+        <field name="name">Plows POS</field>
+        <field name="category_id" ref="module_category_plows_pos"/>
+    </record>
+
+    <record id="group_plows_pos_user" model="res.groups">
+        <field name="name">Usuario (Consulta)</field>
+        <field name="privilege_id" ref="res_groups_privilege_plows_pos"/>
+        <field name="implied_ids" eval="[Command.link(ref('base.group_user'))]"/>
+    </record>
+
+    <record id="group_plows_pos_manager" model="res.groups">
+        <field name="name">Administrador (Configuración y Sync)</field>
+        <field name="privilege_id" ref="res_groups_privilege_plows_pos"/>
+        <field name="implied_ids" eval="[Command.link(ref('group_plows_pos_user'))]"/>
+        <field name="user_ids" eval="[Command.link(ref('base.user_root')), Command.link(ref('base.user_admin'))]"/>
+    </record>
+</odoo>

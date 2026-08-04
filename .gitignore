@@ -1,11 +1,12 @@
 
 .env
-
 *.pyc
-
 *__pycache__
-
 .agents
 .requirements 
-
 /mcp-server
+/docs
+/odoo-development
+
+.specify
+specs

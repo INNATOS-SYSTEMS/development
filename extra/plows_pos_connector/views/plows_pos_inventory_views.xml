@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Vista Lista de Inventario -->
+    <record id="view_plows_pos_inventory_tree" model="ir.ui.view">
+        <field name="name">plows.pos.inventory.list</field>
+        <field name="model">plows.pos.inventory</field>
+        <field name="arch" type="xml">
+            <list string="Inventario" create="0" delete="0"
+                  decoration-success="state == 'synced'"
+                  decoration-warning="state == 'draft'"
+                  decoration-danger="state == 'failed'">
+                <field name="name"/>
+                <field name="date"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'synced'"
+                       decoration-warning="state == 'draft'"
+                       decoration-danger="state == 'failed'"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Vista Formulario de Inventario (solo lectura) -->
+    <record id="view_plows_pos_inventory_form" model="ir.ui.view">
+        <field name="name">plows.pos.inventory.form</field>
+        <field name="model">plows.pos.inventory</field>
+        <field name="arch" type="xml">
+            <form string="Inventario" create="false" edit="false">
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,synced"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <field name="date" readonly="1"/>
+                        <field name="notes" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Vista de Búsqueda de Inventario -->
+    <record id="view_plows_pos_inventory_search" model="ir.ui.view">
+        <field name="name">plows.pos.inventory.search</field>
+        <field name="model">plows.pos.inventory</field>
+        <field name="arch" type="xml">
+            <search string="Buscar Inventarios">
+                <field name="name"/>
+                <filter string="Sincronizados" name="synced" domain="[('state','=','synced')]"/>
+                <filter string="Fallados" name="failed" domain="[('state','=','failed')]"/>
+                <group>
+                    <filter string="Estado" name="group_by_state" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Acción de Ventana para Inventario -->
+    <record id="action_plows_pos_inventory" model="ir.actions.act_window">
+        <field name="name">Inventario</field>
+        <field name="res_model">plows.pos.inventory</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_plows_pos_inventory_search"/>
+        <field name="context">{'create': False}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay cierres de inventario sincronizados aún.
+            </p>
+            <p>
+                Los registros de inventario se generarán automáticamente en una fase futura de sincronización.
+                Esta sección está reservada para los cierres de inventario físico y financiero desde Plows POS.
+            </p>
+        </field>
+    </record>
+</odoo>

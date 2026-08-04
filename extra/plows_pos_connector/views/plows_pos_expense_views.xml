@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Vista Lista de Egresos -->
+    <record id="view_plows_pos_expense_tree" model="ir.ui.view">
+        <field name="name">plows.pos.expense.list</field>
+        <field name="model">plows.pos.expense</field>
+        <field name="arch" type="xml">
+            <list string="Egresos" create="0" delete="0"
+                  decoration-success="state == 'synced'"
+                  decoration-warning="state == 'draft'"
+                  decoration-danger="state == 'failed'">
+                <field name="name"/>
+                <field name="date"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'synced'"
+                       decoration-warning="state == 'draft'"
+                       decoration-danger="state == 'failed'"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Vista Formulario de Egresos (solo lectura) -->
+    <record id="view_plows_pos_expense_form" model="ir.ui.view">
+        <field name="name">plows.pos.expense.form</field>
+        <field name="model">plows.pos.expense</field>
+        <field name="arch" type="xml">
+            <form string="Egreso" create="false" edit="false">
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,synced"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <field name="date" readonly="1"/>
+                        <field name="notes" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Vista de Búsqueda de Egresos -->
+    <record id="view_plows_pos_expense_search" model="ir.ui.view">
+        <field name="name">plows.pos.expense.search</field>
+        <field name="model">plows.pos.expense</field>
+        <field name="arch" type="xml">
+            <search string="Buscar Egresos">
+                <field name="name"/>
+                <filter string="Sincronizados" name="synced" domain="[('state','=','synced')]"/>
+                <filter string="Fallados" name="failed" domain="[('state','=','failed')]"/>
+                <group>
+                    <filter string="Estado" name="group_by_state" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Acción de Ventana para Egresos -->
+    <record id="action_plows_pos_expense" model="ir.actions.act_window">
+        <field name="name">Egresos</field>
+        <field name="res_model">plows.pos.expense</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_plows_pos_expense_search"/>
+        <field name="context">{'create': False}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay egresos sincronizados aún.
+            </p>
+            <p>
+                Los registros de egresos se generarán automáticamente en una fase futura de sincronización.
+                Esta sección está reservada para la integración de egresos y gastos desde Plows POS.
+            </p>
+        </field>
+    </record>
+</odoo>

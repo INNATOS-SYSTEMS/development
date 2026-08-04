@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Acción de Cliente para el Tablero OWL -->
+    <record id="action_plows_pos_dashboard" model="ir.actions.client">
+        <field name="name">Tablero Plows POS</field>
+        <field name="tag">plows_pos_dashboard</field>
+        <field name="target">main</field>
+    </record>
+</odoo>

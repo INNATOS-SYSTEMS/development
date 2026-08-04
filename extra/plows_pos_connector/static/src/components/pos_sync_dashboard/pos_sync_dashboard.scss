@@ -1,0 +1,290 @@
+// Plows POS Dashboard — OWL Component Styles
+// Scope: .o_plows_dashboard
+
+.o_plows_dashboard {
+    padding: 24px;
+    background: #f4f6fa;
+    min-height: 100%;
+    font-family: 'Inter', 'Roboto', system-ui, sans-serif;
+
+    // ─── Header ───────────────────────────────────────────────
+    .o_plows_dashboard_header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 28px;
+        padding-bottom: 20px;
+        border-bottom: 2px solid #e0e7ef;
+
+        .o_plows_dashboard_title {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+
+            h1 {
+                margin: 0;
+                font-size: 1.8rem;
+                font-weight: 700;
+                color: #1a2a3a;
+                letter-spacing: -0.5px;
+            }
+        }
+
+        .o_plows_dashboard_logo {
+            width: 42px;
+            height: 42px;
+            border-radius: 8px;
+            object-fit: contain;
+        }
+    }
+
+    .o_plows_refresh_btn {
+        border-radius: 20px;
+        padding: 8px 20px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+
+        &:hover {
+            background: #0066cc;
+            color: #fff;
+            border-color: #0066cc;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 102, 204, 0.3);
+        }
+
+        .fa-spin {
+            animation: fa-spin 0.8s linear infinite;
+        }
+    }
+
+    // ─── Error Banner ─────────────────────────────────────────
+    .o_plows_error_banner {
+        border-radius: 12px;
+        margin-bottom: 20px;
+    }
+
+    // ─── Loading State ────────────────────────────────────────
+    .o_plows_loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 80px 20px;
+
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
+    }
+
+    // ─── Section Titles ───────────────────────────────────────
+    .o_plows_section_title {
+        display: flex;
+        align-items: center;
+        font-size: 0.85rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #5a6a7a;
+        margin-bottom: 14px;
+    }
+
+    // ─── KPI Cards ────────────────────────────────────────────
+    .o_plows_kpi_row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin-bottom: 4px;
+
+        @media (max-width: 1100px) {
+            grid-template-columns: repeat(2, 1fr);
+        }
+        @media (max-width: 640px) {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .o_plows_kpi_card {
+        background: #fff;
+        border-radius: 16px;
+        padding: 22px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        cursor: default;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        border-top: 4px solid transparent;
+        position: relative;
+        overflow: hidden;
+
+        &:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+        }
+
+        .o_plows_kpi_icon {
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+            opacity: 0.85;
+        }
+
+        .o_plows_kpi_value {
+            font-size: 2.4rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+
+        .o_plows_kpi_date {
+            font-size: 1.1rem;
+        }
+
+        .o_plows_kpi_label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #8a9aaa;
+        }
+
+        // Color variants
+        &.o_plows_kpi_total {
+            border-top-color: #4a90d9;
+            cursor: pointer;
+            .o_plows_kpi_icon, .o_plows_kpi_value { color: #4a90d9; }
+        }
+        &.o_plows_kpi_success {
+            border-top-color: #28c76f;
+            .o_plows_kpi_icon, .o_plows_kpi_value { color: #28c76f; }
+        }
+        &.o_plows_kpi_danger {
+            border-top-color: #ea5455;
+            .o_plows_kpi_icon, .o_plows_kpi_value { color: #ea5455; }
+        }
+        &.o_plows_kpi_info {
+            border-top-color: #7367f0;
+            .o_plows_kpi_icon, .o_plows_kpi_value { color: #7367f0; }
+        }
+        &.o_plows_kpi_catalog {
+            border-top-color: #00cfe8;
+            .o_plows_kpi_icon, .o_plows_kpi_value { color: #00cfe8; }
+        }
+    }
+
+    // ─── Two-Column Layout ────────────────────────────────────
+    .o_plows_two_col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+
+        @media (max-width: 960px) {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    // ─── Panels ───────────────────────────────────────────────
+    .o_plows_panel {
+        background: #fff;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+
+        .o_plows_panel_header {
+            display: flex;
+            align-items: center;
+            padding: 16px 20px;
+            background: #f8faff;
+            border-bottom: 1px solid #e8eef7;
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: #1a2a3a;
+        }
+
+        .o_plows_panel_warning {
+            background: #fff8e6;
+            border-bottom-color: #ffe599;
+            color: #8a6200;
+        }
+    }
+
+    // ─── Empty State ─────────────────────────────────────────
+    .o_plows_empty_panel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 40px 20px;
+        color: #8a9aaa;
+    }
+
+    .o_plows_empty_success {
+        color: #28c76f;
+    }
+
+    // ─── Cash Cuts Table ─────────────────────────────────────
+    .o_plows_table {
+        margin-bottom: 0;
+
+        th {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+            color: #8a9aaa;
+            border-top: none;
+            padding: 10px 16px;
+        }
+
+        td {
+            padding: 10px 16px;
+            vertical-align: middle;
+            font-size: 0.88rem;
+        }
+
+        tbody tr {
+            transition: background 0.15s ease;
+
+            &:hover {
+                background: #f4f8ff;
+            }
+        }
+    }
+
+    // ─── Warnings List ────────────────────────────────────────
+    .o_plows_warnings_list {
+        max-height: 320px;
+        overflow-y: auto;
+    }
+
+    .o_plows_warning_item {
+        padding: 12px 20px;
+        border-bottom: 1px solid #f0f4f8;
+
+        &:last-child {
+            border-bottom: none;
+        }
+
+        &:hover {
+            background: #fff8f0;
+        }
+
+        .o_plows_warning_meta {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .o_plows_warning_phase {
+            font-size: 0.78rem;
+            font-weight: 500;
+        }
+
+        .o_plows_warning_msg {
+            font-size: 0.87rem;
+            color: #2c3e50;
+            line-height: 1.5;
+        }
+    }
+}

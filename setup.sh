@@ -2,7 +2,7 @@
 
 ODOO_VERSION=${ODOO_VERSION:-19.0}
 
-BASE_DIR="../$ODOO_VERSION"
+BASE_DIR="../../Sources/$ODOO_VERSION"
 
 echo "Clonando Odoo versión $ODOO_VERSION en $BASE_DIR..."
 

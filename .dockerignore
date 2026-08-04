@@ -1,0 +1,11 @@
+.git/
+.dockerignore
+Dockerfile
+docker-compose.yml
+docker-compose.dev.yml
+*.pyc
+__pycache__/
+.env
+.agents
+.specify/
+/odoo-development/

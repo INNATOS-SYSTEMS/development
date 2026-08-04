@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Vistas de Reglas de Impuestos -->
+    <record id="view_plows_pos_tax_rule_tree" model="ir.ui.view">
+        <field name="name">plows.pos.tax.rule.list</field>
+        <field name="model">plows.pos.tax.rule</field>
+        <field name="arch" type="xml">
+            <list string="Mapeo de Impuestos" editable="bottom">
+                <field name="name"/>
+                <field name="pos_tax_desc"/>
+                <field name="odoo_tax_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_plows_pos_tax_rule" model="ir.actions.act_window">
+        <field name="name">Impuestos</field>
+        <field name="res_model">plows.pos.tax.rule</field>
+        <field name="view_mode">list</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Defina las equivalencias de impuestos.
+            </p>
+            <p>
+                Asocie los códigos de impuesto de Plows POS con las tasas registradas en la contabilidad de Odoo.
+            </p>
+        </field>
+    </record>
+
+    <!-- Vistas de Reglas de Métodos de Pago -->
+    <record id="view_plows_pos_payment_rule_tree" model="ir.ui.view">
+        <field name="name">plows.pos.payment.rule.list</field>
+        <field name="model">plows.pos.payment.rule</field>
+        <field name="arch" type="xml">
+            <list string="Mapeo de Métodos de Pago" editable="bottom">
+                <field name="name"/>
+                <field name="pos_payment_desc"/>
+                <field name="odoo_journal_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_plows_pos_payment_rule" model="ir.actions.act_window">
+        <field name="name">Métodos de Pago</field>
+        <field name="res_model">plows.pos.payment.rule</field>
+        <field name="view_mode">list</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Defina las equivalencias de métodos de pago.
+            </p>
+            <p>
+                Asocie las claves de pago del POS con los respectivos Diarios Bancarios/Caja de Odoo 19.
+            </p>
+        </field>
+    </record>
+</odoo>

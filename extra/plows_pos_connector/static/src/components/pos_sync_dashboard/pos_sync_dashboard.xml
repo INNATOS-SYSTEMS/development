@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="plows_pos_connector.PlowsPosDashboard">
+        <div class="o_plows_dashboard">
+
+            <!-- Header -->
+            <div class="o_plows_dashboard_header d-flex align-items-center justify-content-between mb-4">
+                <div class="o_plows_dashboard_title d-flex align-items-center">
+                    <img src="/plows_pos_connector/static/description/icon.png"
+                         alt="Plows POS" class="o_plows_dashboard_logo me-3" style="height: 38px;"/>
+                    <h1 class="h3 mb-0">Estado de Sincronización Plows POS</h1>
+                </div>
+                <button class="btn btn-outline-primary o_plows_refresh_btn"
+                        t-on-click="onRefresh"
+                        t-att-disabled="state.loading">
+                    <i class="fa fa-refresh me-1" t-att-class="{'fa-spin': state.loading}"/>
+                    Actualizar Estado
+                </button>
+            </div>
+
+            <!-- Error Banner -->
+            <t t-if="state.error">
+                <div class="alert alert-danger o_plows_error_banner mb-4" role="alert">
+                    <i class="fa fa-exclamation-triangle me-2"/>
+                    <strong>Error al cargar estado:</strong> <t t-esc="state.error"/>
+                </div>
+            </t>
+
+            <!-- Loading Spinner -->
+            <t t-if="state.loading and !state.error">
+                <div class="o_plows_loading text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                    <p class="mt-3 text-muted">Evaluando estado del sistema...</p>
+                </div>
+            </t>
+
+            <!-- Dashboard Content -->
+            <t t-if="!state.loading and !state.error">
+
+                <!-- Section 1: Overall System Health Banner (User Story 1) -->
+                <div class="card mb-4 shadow-sm border-0"
+                     t-att-class="{
+                        'bg-success-subtle border-start border-success border-4': state.overallHealth.health_code == 'healthy',
+                        'bg-warning-subtle border-start border-warning border-4': state.overallHealth.health_code == 'degraded',
+                        'bg-danger-subtle border-start border-danger border-4': state.overallHealth.health_code == 'critical'
+                     }">
+                    <div class="card-body p-4 d-flex align-items-center justify-content-between">
+                        <div>
+                            <div class="d-flex align-items-center mb-2">
+                                <i class="fa fa-circle me-2"
+                                   t-att-class="{
+                                      'text-success': state.overallHealth.health_code == 'healthy',
+                                      'text-warning': state.overallHealth.health_code == 'degraded',
+                                      'text-danger': state.overallHealth.health_code == 'critical'
+                                   }"/>
+                                <h4 class="card-title mb-0 fw-bold">
+                                    <t t-esc="state.overallHealth.health_title"/>
+                                </h4>
+                            </div>
+                            <p class="card-text text-muted mb-0">
+                                <t t-esc="state.overallHealth.health_message"/>
+                            </p>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge bg-secondary">
+                                Verificado: <t t-esc="state.overallHealth.last_check_time"/>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2: Consolidated Catalog Health Verifiers (User Story 2) -->
+                <div class="o_plows_section_title mb-3 fw-bold fs-5">
+                    <i class="fa fa-check-square-o me-2 text-primary"/>
+                    <span>Verificadores de Catálogos</span>
+                </div>
+                <div class="row g-3 mb-4">
+                    <t t-foreach="state.catalogVerifiers" t-as="verifier" t-key="verifier.catalog_key">
+                        <div class="col-md-3">
+                            <div class="card h-100 shadow-sm border-0 o_plows_verifier_card"
+                                 style="cursor: pointer;"
+                                 t-on-click="() => this.openCatalogAction(verifier)">
+                                <div class="card-body p-3">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <span class="fw-semibold"><t t-esc="verifier.catalog_label"/></span>
+                                        <span class="badge"
+                                              t-att-class="{
+                                                  'bg-success': verifier.status_code == 'up_to_date',
+                                                  'bg-info': verifier.status_code == 'syncing',
+                                                  'bg-warning text-dark': verifier.status_code == 'warning',
+                                                  'bg-danger': verifier.status_code == 'failed'
+                                              }">
+                                            <t t-esc="verifier.status_label"/>
+                                        </span>
+                                    </div>
+                                    <div class="small text-muted">
+                                        Última Sync: <t t-esc="verifier.last_sync_time or 'N/A'"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+
+                <!-- Section 3: Active Warnings & Cashier Closures Feed (User Story 3) -->
+                <div class="row g-4">
+                    <!-- Left: Active System Warnings Panel -->
+                    <div class="col-md-6">
+                        <div class="card shadow-sm border-0 h-100">
+                            <div class="card-header bg-white py-3 border-0 fw-bold fs-6">
+                                <i class="fa fa-bell me-2 text-warning"/>
+                                <span>Advertencias del Sistema (<t t-esc="state.activeWarnings.length"/>)</span>
+                            </div>
+                            <div class="card-body p-0">
+                                <t t-if="state.activeWarnings.length == 0">
+                                    <div class="p-4 text-center text-muted">
+                                        <i class="fa fa-check-circle text-success fs-3 mb-2"/>
+                                        <p class="mb-0">Sin advertencias de configuración activas.</p>
+                                    </div>
+                                </t>
+                                <t t-else="">
+                                    <ul class="list-group list-group-flush">
+                                        <t t-foreach="state.activeWarnings" t-as="warn" t-key="warn.id">
+                                            <li class="list-group-item d-flex align-items-center justify-content-between p-3">
+                                                <div>
+                                                    <i class="fa fa-exclamation-triangle text-warning me-2"/>
+                                                    <span><t t-esc="warn.message"/></span>
+                                                </div>
+                                                <button class="btn btn-sm btn-outline-warning"
+                                                        t-on-click="() => this.openWarningTarget(warn)">
+                                                    <t t-esc="warn.action_label"/>
+                                                </button>
+                                            </li>
+                                        </t>
+                                    </ul>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Recent Cashier Closures Feed -->
+                    <div class="col-md-6">
+                        <div class="card shadow-sm border-0 h-100">
+                            <div class="card-header bg-white py-3 border-0 fw-bold fs-6">
+                                <i class="fa fa-cash-register me-2 text-primary"/>
+                                <span>Últimos Cortes de Caja Sincronizados</span>
+                            </div>
+                            <div class="card-body p-0">
+                                <t t-if="state.recentClosures.length == 0">
+                                    <div class="p-4 text-center text-muted">
+                                        <p class="mb-0">Sin cortes de caja recientes.</p>
+                                    </div>
+                                </t>
+                                <t t-else="">
+                                    <div class="table-responsive">
+                                        <table class="table table-hover align-middle mb-0">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Referencia</th>
+                                                    <th>Caja / Sucursal</th>
+                                                    <th>Fecha</th>
+                                                    <th>Estado</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="state.recentClosures" t-as="closure" t-key="closure.closure_id">
+                                                    <tr style="cursor: pointer;"
+                                                        t-on-click="() => this.openClosureTarget(closure)">
+                                                        <td class="fw-semibold"><t t-esc="closure.reference"/></td>
+                                                        <td><t t-esc="closure.location_name"/></td>
+                                                        <td class="small text-muted"><t t-esc="closure.closure_time or '-'"/></td>
+                                                        <td>
+                                                            <span class="badge"
+                                                                  t-att-class="{
+                                                                      'bg-success': closure.status_code == 'synced',
+                                                                      'bg-info': closure.status_code == 'processing',
+                                                                      'bg-danger': closure.status_code == 'error_posting'
+                                                                  }">
+                                                                <t t-esc="closure.status_label"/>
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </t>
+        </div>
+    </t>
+</templates>

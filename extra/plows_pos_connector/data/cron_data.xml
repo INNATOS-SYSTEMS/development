@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <!-- Secuencia para Folios de Jobs -->
+    <record id="seq_plows_pos_sync_job" model="ir.sequence">
+        <field name="name">Plows POS Sync Job Folio</field>
+        <field name="code">plows.pos.sync.job</field>
+        <field name="prefix">JOB/%(year)s%(month)s%(day)s/</field>
+        <field name="padding">4</field>
+        <field name="company_id" eval="False"/>
+    </record>
+
+    <!-- Secuencia para Folios de Cierres -->
+    <record id="seq_plows_pos_closure" model="ir.sequence">
+        <field name="name">Plows POS Closure Folio</field>
+        <field name="code">plows.pos.closure</field>
+        <field name="prefix">CLOS/%(year)s%(month)s%(day)s/</field>
+        <field name="padding">4</field>
+        <field name="company_id" eval="False"/>
+    </record>
+
+
+    <!-- Cron para Sincronización de Catálogos (Diario / Worker) -->
+    <record id="cron_plows_pos_sync_catalogs" model="ir.cron">
+        <field name="name">Plows POS: Sincronizar Catálogos (Worker Asíncrono)</field>
+        <field name="model_id" ref="model_plows_pos_sync_job"/>
+        <field name="state">code</field>
+        <field name="code">model.search([('state', 'in', ['queued', 'running'])]).action_process_next_batch()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <!-- Cron para Sincronización de Transacciones (Por Hora) -->
+    <record id="cron_plows_pos_sync_transactions" model="ir.cron">
+        <field name="name">Plows POS: Sincronizar Transacciones (Por Hora)</field>
+        <field name="model_id" ref="model_plows_pos_sync_job"/>
+        <field name="state">code</field>
+        <field name="code">model.search([]).action_retry()</field> <!-- Esqueleto -->
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+        <field name="active" eval="False"/>
+    </record>
+
+    <!-- Cron para Cierre de Inventario (Nocturno) -->
+    <record id="cron_plows_pos_sync_inventory" model="ir.cron">
+        <field name="name">Plows POS: Sincronizar Cierre de Inventario (Nocturno)</field>
+        <field name="model_id" ref="model_plows_pos_sync_job"/>
+        <field name="state">code</field>
+        <field name="code">model.search([]).action_retry()</field> <!-- Esqueleto -->
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="False"/>
+    </record>
+</odoo>
