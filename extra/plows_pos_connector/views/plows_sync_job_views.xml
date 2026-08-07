@@ -60,11 +60,13 @@
         <field name="name">plows.pos.sync.job.form</field>
         <field name="model">plows.pos.sync.job</field>
         <field name="arch" type="xml">
-            <form string="Sincronización Job">
+            <form string="Sincronización Job" js_class="plows_sync_form">
                 <header>
                     <button name="action_queue_job" type="object" string="Iniciar Sincronización" class="oe_highlight" invisible="state != 'draft'"/>
+                    <button name="action_pause_sync" type="object" string="Pausar Sincronización" class="btn-warning" invisible="state not in ['queued', 'running']"/>
+                    <button name="action_resume_sync" type="object" string="Reanudar Sincronización" class="oe_highlight" invisible="state != 'paused'"/>
                     <button name="action_retry" type="object" string="Re-procesar Job" class="oe_highlight" invisible="state not in ['failed', 'partial_failed']"/>
-                    <field name="state" widget="statusbar" statusbar_visible="draft,queued,running,done"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,queued,running,paused,done"/>
                 </header>
                 <sheet>
                     <div class="oe_title">

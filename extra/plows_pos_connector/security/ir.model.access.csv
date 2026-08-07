@@ -21,4 +21,8 @@ access_plows_sync_checkpoint_user,plows.pos.sync.checkpoint.user,model_plows_pos
 access_plows_sync_checkpoint_manager,plows.pos.sync.checkpoint.manager,model_plows_pos_sync_checkpoint,group_plows_pos_manager,1,1,1,1
 access_plows_sync_dashboard_user,plows.pos.sync.dashboard.user,model_plows_pos_sync_dashboard,group_plows_pos_user,1,0,0,0
 access_plows_sync_dashboard_manager,plows.pos.sync.dashboard.manager,model_plows_pos_sync_dashboard,group_plows_pos_manager,1,1,1,1
+access_plows_staging_raw_user,plows.pos.staging.raw.user,model_plows_pos_staging_raw,group_plows_pos_user,1,0,0,0
+access_plows_staging_raw_manager,plows.pos.staging.raw.manager,model_plows_pos_staging_raw,group_plows_pos_manager,1,1,1,1
+access_plows_field_mapping_user,plows.pos.field.mapping.user,model_plows_pos_field_mapping,group_plows_pos_user,1,0,0,0
+access_plows_field_mapping_manager,plows.pos.field.mapping.manager,model_plows_pos_field_mapping,group_plows_pos_manager,1,1,1,1
 

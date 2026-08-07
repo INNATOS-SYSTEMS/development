@@ -51,7 +51,7 @@
     <menuitem id="menu_plows_pos_products_action"
               name="Productos"
               parent="menu_plows_pos_catalogs"
-              action="action_plows_pos_products"
+              action="product.product_template_action"
               sequence="10"/>
 
     <menuitem id="menu_plows_pos_partners_action"
@@ -102,6 +102,12 @@
               parent="menu_plows_pos_config"
               action="action_plows_pos_config"
               sequence="10"/>
+
+    <menuitem id="menu_plows_pos_field_mapping_action"
+              name="Mapeo de Propiedades"
+              parent="menu_plows_pos_config"
+              action="action_plows_pos_field_mapping"
+              sequence="15"/>
 
     <menuitem id="menu_plows_pos_tax_rule_action"
               name="Impuestos"

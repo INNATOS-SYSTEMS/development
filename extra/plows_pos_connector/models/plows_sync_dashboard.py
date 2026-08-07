@@ -61,7 +61,7 @@ class PlowsPosSyncDashboard(models.TransientModel):
             {'key': 'products', 'label': 'Productos', 'action_xml_id': 'plows_pos_connector.action_plows_pos_sync_job'},
             {'key': 'customers', 'label': 'Clientes', 'action_xml_id': 'plows_pos_connector.action_plows_pos_sync_job'},
             {'key': 'taxes', 'label': 'Impuestos', 'action_xml_id': 'plows_pos_connector.action_plows_pos_tax_rule'},
-            {'key': 'payment_rules', 'label': 'Reglas de Pago', 'action_xml_id': 'plows_pos_connector.action_plows_pos_payment_rule'},
+            {'key': 'payment_methods', 'label': 'Métodos de pago', 'action_xml_id': 'plows_pos_connector.action_plows_pos_payment_rule'},
         ]
 
         result = []

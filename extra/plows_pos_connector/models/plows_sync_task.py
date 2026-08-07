@@ -25,13 +25,14 @@ class PlowsPosSyncTask(models.Model):
         ('employees', 'Personal'),
         ('categories', 'Categorías'),
         ('taxes', 'Impuestos'),
-        ('payment_rules', 'Reglas de Pago'),
+        ('payment_methods', 'Métodos de pago'),
     ], string='Catálogo', required=True)
 
     state = fields.Selection([
         ('queued', 'En Cola'),
         ('in_progress', 'En Progreso'),
         ('retrying', 'Reintentando'),
+        ('paused', 'Pausado'),
         ('completed', 'Completado'),
         ('failed', 'Fallido'),
         ('skipped', 'Omitido'),
@@ -71,12 +72,27 @@ class PlowsPosSyncTask(models.Model):
                 task.progress_percentage = 0.0
 
     def _fetch_initial_metadata_count(self):
-        """ Realiza consulta inicial de metadatos para fijar total_records. """
+        """ Realiza consulta inicial de metadatos para fijar total_records al inicio (US2 / FR-032). """
         for task in self:
             if task.total_records > 0:
                 continue
-            # total_records se fija dinámicamente desde la respuesta API en action_process_next_batch
-            pass
+            endpoint_map = {
+                'products': 'catalogs/products',
+                'customers': 'catalogs/customers',
+                'suppliers': 'catalogs/suppliers',
+                'locations': 'catalogs/locations',
+                'employees': 'catalogs/employees',
+                'taxes': 'catalogs/taxes',
+                'payment_methods': 'catalogs/payment-methods',
+            }
+            endpoint = endpoint_map.get(task.catalog_name)
+            if endpoint:
+                try:
+                    _, total_count, _ = task.job_id._fetch_api_page(endpoint, page=1, limit=1)
+                    if total_count > 0:
+                        task.write({'total_records': total_count})
+                except Exception as e:
+                    _logger.warning(f"No se pudo consultar metadatos iniciales para {task.catalog_name}: {e}")
 
     def _process_page_checkpoint(self, page_num, records_count, status='success', summary=None):
         """ Registra checkpoint por página y avanza puntero de paginación (SC-004). """

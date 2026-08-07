@@ -27,15 +27,18 @@
         </field>
     </record>
 
-    <!-- Vistas de Reglas de Métodos de Pago -->
+    <!-- Vistas de Mapeo de Métodos de Pago -->
     <record id="view_plows_pos_payment_rule_tree" model="ir.ui.view">
         <field name="name">plows.pos.payment.rule.list</field>
         <field name="model">plows.pos.payment.rule</field>
         <field name="arch" type="xml">
-            <list string="Mapeo de Métodos de Pago" editable="bottom">
+            <list string="Mapeo de Métodos de Pago POS ➔ Odoo" editable="bottom">
+                <field name="pos_payment_method_id"/>
                 <field name="name"/>
                 <field name="pos_payment_desc"/>
+                <field name="odoo_payment_method_id"/>
                 <field name="odoo_journal_id"/>
+                <field name="is_active" widget="boolean_toggle"/>
             </list>
         </field>
     </record>
@@ -46,10 +49,10 @@
         <field name="view_mode">list</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
-                Defina las equivalencias de métodos de pago.
+                Defina las equivalencias de Métodos de Pago.
             </p>
             <p>
-                Asocie las claves de pago del POS con los respectivos Diarios Bancarios/Caja de Odoo 19.
+                Asocie las claves de pago del POS con los Métodos de Pago y Diarios de Odoo.
             </p>
         </field>
     </record>

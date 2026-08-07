@@ -31,6 +31,7 @@ class PlowsPosSyncJob(models.Model):
         ('draft', 'Planificado'),
         ('queued', 'En Cola'),
         ('running', 'En Ejecución'),
+        ('paused', 'Pausado'),
         ('done', 'Completado'),
         ('partial_failed', 'Parcialmente Fallido'),
         ('failed', 'Fallo'),
@@ -63,19 +64,47 @@ class PlowsPosSyncJob(models.Model):
         store=True,
     )
 
-    @api.depends('task_ids', 'task_ids.total_records', 'task_ids.processed_records', 'task_ids.state')
+    @api.depends('task_ids', 'task_ids.total_records', 'task_ids.processed_records', 'task_ids.progress_percentage', 'task_ids.state')
     def _compute_job_progress_totals(self):
         for job in self:
-            tot = sum(job.task_ids.mapped('total_records'))
-            proc = sum(job.task_ids.mapped('processed_records'))
+            tasks = job.task_ids
+            if not tasks:
+                job.total_records = 0
+                job.processed_records = 0
+                job.global_progress = 0.0
+                continue
+
+            tot = sum(t.total_records for t in tasks)
+            proc = sum(t.processed_records for t in tasks)
             job.total_records = tot
             job.processed_records = proc
-            if tot > 0:
-                job.global_progress = min(100.0, round((float(proc) / float(tot)) * 100.0, 2))
-            elif any(t.state == 'completed' for t in job.task_ids):
-                job.global_progress = 100.0
-            else:
-                job.global_progress = 0.0
+
+            # Regla 1 (FR-020): Progreso global promediado entre todas las tareas enroladas
+            avg_progress = sum(t.progress_percentage for t in tasks) / float(len(tasks))
+            job.global_progress = min(100.0, round(avg_progress, 2))
+
+    def action_pause_sync(self):
+        """ Pausa la sincronización activa (Regla 3 - FR-020). """
+        for job in self:
+            if job.state in ['queued', 'running']:
+                job.write({'state': 'paused'})
+                job.task_ids.filtered(lambda t: t.state in ['queued', 'in_progress', 'retrying']).write({'state': 'paused'})
+                job._notify_bus_update(job)
+                self.env.cr.commit()
+                self._log('warning', 'general', 'Sincronización pausada por el usuario.')
+        return True
+
+    def action_resume_sync(self):
+        """ Reanuda la sincronización pausada (Regla 3 - FR-020). """
+        for job in self:
+            if job.state == 'paused':
+                job.write({'state': 'running'})
+                job.task_ids.filtered(lambda t: t.state == 'paused').write({'state': 'in_progress'})
+                job._notify_bus_update(job)
+                self.env.cr.commit()
+                self._log('info', 'general', 'Sincronización reanudada por el usuario.')
+                job.action_process_next_batch()
+        return True
 
     @api.depends('task_ids.error_log', 'task_ids.state')
     def _compute_error_summary(self):
@@ -97,7 +126,7 @@ class PlowsPosSyncJob(models.Model):
             if not job.task_ids:
                 default_catalogs = [
                     'products', 'customers', 'suppliers',
-                    'locations', 'employees', 'taxes', 'payment_rules',
+                    'locations', 'employees', 'taxes', 'payment_methods',
                 ]
                 self.env['plows.pos.sync.task'].sudo().create([
                     {
@@ -108,10 +137,19 @@ class PlowsPosSyncJob(models.Model):
                     } for cat in default_catalogs
                 ])
             job.write({
-                'state': 'queued',
+                'state': 'running',
                 'start_date': fields.Datetime.now() if not job.start_date else job.start_date
             })
             self.env.cr.commit()
+
+            # Emitir notificación bus de inmediato para refresco UI en < 200ms
+            job._notify_bus_update(job)
+
+            # Consultar metadatos iniciales por tarea
+            job.task_ids._fetch_initial_metadata_count()
+            self.env.cr.commit()
+
+            # Disparar ejecución de lotes
             job.action_process_next_batch()
         return True
 
@@ -209,21 +247,25 @@ class PlowsPosSyncJob(models.Model):
             if isinstance(payload, list) and not items:
                 items = payload
 
-            if total_pages > 0 and (total_count == 0 or total_count == len(items)):
+            if not total_count:
+                for d in dicts_to_check:
+                    for key in ['total_count', 'totalCount', 'count', 'total']:
+                        val = self._to_int(d.get(key))
+                        if val > 0:
+                            total_count = val
+                            break
+                    if total_count > 0:
+                        break
+
+            if total_count == 0 and total_pages > 0:
                 total_count = total_pages * limit
 
             if total_count > 0 and total_pages == 0:
                 import math
                 total_pages = math.ceil(total_count / float(limit))
 
-            if not total_count:
-                for d in dicts_to_check:
-                    val = self._to_int(d.get('total'))
-                    if val > 0:
-                        total_count = val
-                        break
-                if not total_count:
-                    total_count = len(items)
+            if total_count == 0:
+                total_count = len(items)
 
             if total_pages > 0:
                 has_next = page < total_pages
@@ -251,7 +293,8 @@ class PlowsPosSyncJob(models.Model):
             'employees': 'catalogs/employees',
             'taxes': 'catalogs/taxes',
             'categories': 'catalogs/categories',
-            'payment_rules': 'catalogs/payment_rules',
+            'payment_methods': 'catalogs/payment-methods',
+            'payment_rules': 'catalogs/payment-methods',
         }
         endpoint = endpoint_map.get(catalog_name)
         if not endpoint:
@@ -262,6 +305,32 @@ class PlowsPosSyncJob(models.Model):
         if not items:
             return 0, total_count, False
 
+        # Fase 1: Extracción y volcado crudo a Staging con Hash MD5
+        import json, hashlib
+        staging_vals = []
+        for item in items:
+            rec_id = str(item.get('pos_product_id') or item.get('id') or item.get('pos_customer_id') or item.get('pos_supplier_id') or item.get('pos_employee_id') or item.get('pos_payment_method_id') or '')
+            raw_str = json.dumps(item, ensure_ascii=False)
+            md5_hash = hashlib.md5(raw_str.encode('utf-8')).hexdigest()
+
+            # Buscar si existe en la tarea actual
+            matching_task = self.env['plows.pos.sync.task'].search([('job_id', '=', self.id), ('catalog_name', '=', catalog_name)], limit=1)
+            if matching_task:
+                staging_vals.append({
+                    'job_id': self.id,
+                    'task_id': matching_task.id,
+                    'catalog_name': catalog_name,
+                    'pos_record_id': rec_id,
+                    'page_number': page,
+                    'payload_hash': md5_hash,
+                    'raw_payload': raw_str,
+                    'state': 'pending',
+                })
+
+        if staging_vals:
+            self.env['plows.pos.staging.raw'].sudo().create(staging_vals)
+
+        # Fase 2: Vaciado e Inserción/Upsert en Bloque a Odoo ORM
         if catalog_name == 'products':
             processed, failed = self._sync_products_batch(items)
         elif catalog_name == 'customers':
@@ -276,15 +345,170 @@ class PlowsPosSyncJob(models.Model):
             processed, failed = self._sync_taxes_batch(items)
         elif catalog_name == 'categories':
             processed, failed = self._sync_categories_batch(items)
-        elif catalog_name == 'payment_rules':
-            processed, failed = self._sync_payment_rules_batch(items)
+        elif catalog_name in ['payment_methods', 'payment_rules']:
+            processed, failed = self._sync_payment_methods_batch(items)
         else:
             processed = len(items)
 
         return processed, total_count, has_next
 
+    def action_extract_api_to_staging(self, task):
+        """ Fase 1: Extracción Ultra-Rápida HTTP GET a plows.pos.staging.raw (FR-037, FR-038, FR-041, FR-042). """
+        import hashlib
+        import json
+
+        endpoint_map = {
+            'products': 'catalogs/products',
+            'customers': 'catalogs/customers',
+            'suppliers': 'catalogs/suppliers',
+            'locations': 'catalogs/locations',
+            'employees': 'catalogs/employees',
+            'taxes': 'catalogs/taxes',
+            'payment_methods': 'catalogs/payment-methods',
+            'payment_rules': 'catalogs/payment-methods',
+        }
+        endpoint = endpoint_map.get(task.catalog_name)
+        if not endpoint:
+            return 0
+
+        items, total_count, has_next = self._fetch_api_page(endpoint, page=task.current_page, limit=task.page_size)
+        if not items and not has_next:
+            return 0
+
+        if total_count > 0 and task.total_records == 0:
+            task.write({'total_records': total_count})
+
+        staging_vals = []
+        for item in items:
+            rec_id = str(item.get('pos_product_id') or item.get('id') or item.get('pos_customer_id') or item.get('pos_supplier_id') or item.get('pos_employee_id') or '')
+            raw_str = json.dumps(item, ensure_ascii=False)
+            md5_hash = hashlib.md5(raw_str.encode('utf-8')).hexdigest()
+
+            staging_vals.append({
+                'job_id': task.job_id.id,
+                'task_id': task.id,
+                'catalog_name': task.catalog_name,
+                'pos_record_id': rec_id,
+                'page_number': task.current_page,
+                'payload_hash': md5_hash,
+                'raw_payload': raw_str,
+                'state': 'pending',
+            })
+
+        if staging_vals:
+            self.env['plows.pos.staging.raw'].sudo().create(staging_vals)
+
+        return len(items)
+
+    def action_process_staging_to_odoo(self, task):
+        """ Fase 2: Filtro Delta MD5 y Vaciado Upsert Idempotente a Tablas de Odoo (FR-039, FR-041). """
+        import json
+
+        pending_staging = self.env['plows.pos.staging.raw'].search([
+            ('task_id', '=', task.id),
+            ('state', '=', 'pending')
+        ], limit=task.page_size)
+
+        if not pending_staging:
+            return 0, 0
+
+        processed = 0
+        failed = 0
+        to_process_items = []
+        to_skip_staging = self.env['plows.pos.staging.raw']
+
+        for stg in pending_staging:
+            if stg.pos_record_id:
+                prev_stg = self.env['plows.pos.staging.raw'].search([
+                    ('catalog_name', '=', task.catalog_name),
+                    ('pos_record_id', '=', stg.pos_record_id),
+                    ('state', '=', 'processed'),
+                    ('id', '!=', stg.id)
+                ], limit=1, order='id desc')
+                if prev_stg and prev_stg.payload_hash == stg.payload_hash:
+                    to_skip_staging |= stg
+                    continue
+
+            try:
+                item_data = json.loads(stg.raw_payload)
+                to_process_items.append((stg, item_data))
+            except Exception as e:
+                stg.write({'state': 'failed', 'error_message': str(e)})
+                failed += 1
+
+        if to_skip_staging:
+            to_skip_staging.write({'state': 'skipped'})
+
+        if not to_process_items:
+            return len(to_skip_staging), 0
+
+        items_batch = [item for _, item in to_process_items]
+        cat_name = task.catalog_name
+
+        try:
+            if cat_name == 'products':
+                p, f = self._sync_products_batch(items_batch)
+            elif cat_name == 'customers':
+                p, f = self._sync_customers_batch(items_batch)
+            elif cat_name == 'suppliers':
+                p, f = self._sync_suppliers_batch(items_batch)
+            elif cat_name == 'locations':
+                p, f = self._sync_locations_batch(items_batch)
+            elif cat_name == 'employees':
+                p, f = self._sync_employees_batch(items_batch)
+            elif cat_name == 'taxes':
+                p, f = self._sync_taxes_batch(items_batch)
+            elif cat_name in ['payment_methods', 'payment_rules']:
+                p, f = self._sync_payment_methods_batch(items_batch)
+            else:
+                p, f = len(items_batch), 0
+
+            processed += p
+            failed += f
+
+            for stg, _ in to_process_items:
+                stg.write({'state': 'processed'})
+
+        except Exception as batch_err:
+            failed += len(to_process_items)
+            for stg, _ in to_process_items:
+                stg.write({'state': 'failed', 'error_message': str(batch_err)})
+
+        return processed + len(to_skip_staging), failed
+
+    def _get_mapped_vals(self, catalog_name, json_data):
+        """ Consulta dinámicamente plows.pos.field.mapping para estructurar el diccionario vals de Odoo a partir del JSON (FR-043, FR-045). """
+        mappings = self.env['plows.pos.field.mapping'].search([
+            ('pos_catalog', '=', catalog_name),
+            ('is_active', '=', True)
+        ])
+        if not mappings:
+            return {}
+
+        vals = {}
+        for m in mappings:
+            val = json_data.get(m.json_key)
+            if val is None or val == '':
+                if m.default_fallback:
+                    val = m.default_fallback
+                else:
+                    continue
+            vals[m.odoo_field_name] = val
+
+        return vals
+
+    def _is_create_allowed(self, catalog_name):
+        """ Verifica si la política de mapeo permite la creación de nuevos registros para el catálogo especificado (FR-050, FR-052). """
+        rule = self.env['plows.pos.field.mapping'].search([
+            ('pos_catalog', '=', catalog_name),
+            ('is_active', '=', True)
+        ], limit=1)
+        if rule:
+            return rule.allow_create
+        return True
+
     def action_process_next_batch(self):
-        """ Método no bloqueante invocado por cron/botón para procesar lotes de páginas de forma continua (FR-001, FR-002, FR-006, FR-012, FR-013, FR-014, FR-015, FR-016). """
+        """ Método no bloqueante invocado por cron/botón para procesar lotes de páginas de forma continua (FR-001, FR-002, FR-006, FR-012, FR-013, FR-014, FR-015, FR-016, FR-020). """
         import time
         import psycopg2
 
@@ -292,11 +516,13 @@ class PlowsPosSyncJob(models.Model):
             if job.state not in ['queued', 'running']:
                 continue
 
-            # Bloqueo de fila para evitar que otro worker procese simultáneamente el mismo Job
+            # Bloqueo de fila no bloqueante con savepoint anti-deadlock
             try:
-                self.env.cr.execute("SELECT id FROM plows_pos_sync_job WHERE id = %s FOR UPDATE NOWAIT", (job.id,))
-            except psycopg2.OperationalError:
-                _logger.info(f"[PlowsSyncEngine] Job {job.id} bloqueado por otro proceso en ejecución. Omitiendo concurrencia.")
+                with self.env.cr.savepoint():
+                    self.env.cr.execute("SELECT id FROM plows_pos_sync_job WHERE id = %s FOR UPDATE NOWAIT", (job.id,))
+            except Exception:
+                self.env.cr.rollback()
+                _logger.info(f"[PlowsSyncEngine] Job {job.id} está siendo procesado por otro proceso concurrente. Omitiendo execution.")
                 continue
 
             if job.state == 'queued':
@@ -308,8 +534,15 @@ class PlowsPosSyncJob(models.Model):
 
             start_time = time.time()
             max_duration = 15.0  # Procesar lotes de forma continua durante hasta 15 segundos por invocación
+            task_index = 0
 
             while (time.time() - start_time) < max_duration:
+                # Regla 3 (FR-020): Interrumpir ciclo si el job fue pausado
+                job.invalidate_recordset(['state'])
+                if job.state == 'paused':
+                    _logger.info(f"[PlowsSyncEngine] Job {job.id} pausado por el usuario. Interrumpiendo bucle.")
+                    break
+
                 active_tasks = job.task_ids.filtered(lambda t: t.state in ['queued', 'in_progress', 'retrying'])
                 if not active_tasks:
                     if any(t.state == 'failed' for t in job.task_ids):
@@ -321,7 +554,19 @@ class PlowsPosSyncJob(models.Model):
                     job._notify_bus_update(job)
                     break
 
-                target_task = active_tasks[0]
+                # Regla 4 (FR-020): Selección intercalada Round-Robin entre todos los modelos activos
+                target_task = active_tasks[task_index % len(active_tasks)]
+                task_index += 1
+
+                # Proteccion anti-deadlock: Bloqueo exclusivo de fila de tarea (plows_pos_sync_task)
+                try:
+                    with self.env.cr.savepoint():
+                        self.env.cr.execute("SELECT id FROM plows_pos_sync_task WHERE id = %s FOR UPDATE NOWAIT", (target_task.id,))
+                except Exception:
+                    self.env.cr.rollback()
+                    _logger.info(f"[PlowsSyncEngine] Tarea {target_task.catalog_name} id={target_task.id} ocupada por otro proceso. Omitiendo concurrencia.")
+                    continue
+
                 _logger.info(f"[PlowsSyncEngine] Procesando lote para tarea '{target_task.catalog_name}' (Pág {target_task.current_page})")
 
                 try:
@@ -331,9 +576,9 @@ class PlowsPosSyncJob(models.Model):
                         limit=target_task.page_size
                     )
                     
-                    new_total = max(target_task.total_records, total_count)
-                    if new_total > 0 and target_task.total_records != new_total:
-                        target_task.write({'total_records': new_total})
+                    # Regla 2 (FR-020): Fijar total_records exacto desde la primera respuesta de la API
+                    if total_count > 0:
+                        target_task.write({'total_records': total_count})
 
                     if processed_count == 0 and not has_next:
                         target_task.write({'state': 'completed'})
@@ -653,14 +898,61 @@ class PlowsPosSyncJob(models.Model):
         self._log('info', 'movements_tickets',
                   'Fase de Movimientos/Tickets: pendiente de implementación en fase 2. '
                   'Reutiliza la lógica de _sync_expenses() y la parte de tickets de _sync_incomes().')
-    def _get_or_create_product_category(self, name):
-        """ Busca o crea una categoría de producto por nombre """
+    def _get_or_create_product_category(self, name, category_cache=None):
+        """ Retorna o crea una categoría jerárquica basada en una cadena con / (ej. 'Electrónica / Pantallas') con caché en memoria. """
         if not name:
             return False
-        cat = self.env['product.category'].search([('name', '=ilike', name)], limit=1)
-        if not cat:
-            cat = self.env['product.category'].create({'name': name})
-        return cat
+
+        if category_cache is not None and name in category_cache:
+            return category_cache[name]
+
+        parts = [p.strip() for p in name.split('/') if p.strip()]
+        if not parts:
+            return False
+
+        parent_id = False
+        current_cat = False
+
+        for part in parts:
+            domain = [('name', '=ilike', part)]
+            if parent_id:
+                domain.append(('parent_id', '=', parent_id))
+            else:
+                domain.append(('parent_id', '=', False))
+
+            current_cat = self.env['product.category'].search(domain, limit=1)
+            if not current_cat:
+                try:
+                    with self.env.cr.savepoint():
+                        vals = {'name': part}
+                        if parent_id:
+                            vals['parent_id'] = parent_id
+                        current_cat = self.env['product.category'].create(vals)
+                except Exception:
+                    current_cat = self.env['product.category'].search(domain, limit=1)
+
+            if current_cat:
+                parent_id = current_cat.id
+
+        if current_cat and category_cache is not None:
+            category_cache[name] = current_cat
+
+        return current_cat
+
+    def _get_or_create_plows_attribute(self, attr_name=None):
+        """ Retorna el objeto product.attribute universal 'Exhibición PLOWS' (FR-024) con protección anti-deadlock. """
+        target_name = attr_name.strip() if attr_name else 'Exhibición PLOWS'
+        attr = self.env['product.attribute'].search([('name', '=ilike', target_name)], limit=1)
+        if not attr:
+            try:
+                with self.env.cr.savepoint():
+                    attr = self.env['product.attribute'].create({
+                        'name': target_name,
+                        'create_variant': 'always',
+                    })
+            except Exception:
+                attr = self.env['product.attribute'].search([('name', '=ilike', target_name)], limit=1)
+        return attr
 
     def _get_uom_by_name(self, name):
         """ Busca una unidad de medida por nombre o abreviación """
@@ -744,15 +1036,16 @@ class PlowsPosSyncJob(models.Model):
                         vals['x_notes'] = wh_comment
 
                     if not loc:
-                        parent_loc = self.env.ref('stock.stock_location_locations', raise_if_not_found=False)
-                        vals.update({
-                            'location_id': parent_loc.id if parent_loc else False,
-                            'usage': 'internal'
-                        })
-                        self.env['stock.location'].create(vals)
-                        self._log('info', 'catalogs',
-                                  f"Ubicación creada: '{wh_name}' (ID POS: {wh_id})",
-                                  f'stock.location:{wh_id}')
+                        if self._is_create_allowed('locations'):
+                            parent_loc = self.env.ref('stock.stock_location_locations', raise_if_not_found=False)
+                            vals.update({
+                                'location_id': parent_loc.id if parent_loc else False,
+                                'usage': 'internal'
+                            })
+                            self.env['stock.location'].create(vals)
+                            self._log('info', 'catalogs',
+                                      f"Ubicación creada: '{wh_name}' (ID POS: {wh_id})",
+                                      f'stock.location:{wh_id}')
                     else:
                         changed = any(getattr(loc, k) != v for k, v in vals.items())
                         if changed:
@@ -766,27 +1059,43 @@ class PlowsPosSyncJob(models.Model):
         return processed, failed
 
     def _sync_products_batch(self, products):
+        self = self.with_context(tracking_disable=True, mail_notrack=True, mail_create_nolog=True, recompute=False)
         processed = 0
         failed = 0
-        prod_ids = [str(prod.get('pos_product_id') or prod.get('posProductId') or prod.get('id')) for prod in products if (prod.get('pos_product_id') or prod.get('posProductId') or prod.get('id'))]
-        skus = [prod.get('sku') or prod.get('posProductSku') or prod.get('default_code') or prod.get('code') for prod in products if (prod.get('sku') or prod.get('posProductSku') or prod.get('default_code') or prod.get('code'))]
 
-        existing_map = {}
-        for i in range(0, len(prod_ids), 1000):
-            chunk = prod_ids[i:i+1000]
-            found = self.env['product.product'].search([('x_id_pos', 'in', chunk)])
-            for p in found:
-                existing_map[p.x_id_pos] = p
+        # 1. Obtener IDs POS, SKUs y Barcodes para precarga masiva en memoria (0 consultas en bucle)
+        tmpl_ids = [str(prod.get('pos_product_id') or prod.get('posProductId') or prod.get('id')) for prod in products if (prod.get('pos_product_id') or prod.get('posProductId') or prod.get('id'))]
+        skus = list({str(prod.get('sku') or prod.get('posProductSku') or prod.get('default_code') or prod.get('code')) for prod in products if (prod.get('sku') or prod.get('posProductSku') or prod.get('default_code') or prod.get('code'))})
+        barcodes = list({str(prod.get('barcode') or prod.get('upc')) for prod in products if (prod.get('barcode') or prod.get('upc'))})
 
-        sku_map = {}
-        for i in range(0, len(skus), 1000):
-            chunk = skus[i:i+1000]
-            found = self.env['product.product'].search([('default_code', 'in', chunk)])
-            for p in found:
-                if p.default_code:
-                    sku_map[p.default_code] = p
+        existing_tmpl_map = {}
+        for i in range(0, len(tmpl_ids), 1000):
+            chunk = tmpl_ids[i:i+1000]
+            for t in self.env['product.template'].search([('x_id_pos', 'in', chunk)]):
+                existing_tmpl_map[t.x_id_pos] = t
+
+        sku_tmpl_map = {}
+        if skus:
+            for i in range(0, len(skus), 1000):
+                chunk = skus[i:i+1000]
+                for t in self.env['product.template'].search([('default_code', 'in', chunk)]):
+                    sku_tmpl_map[t.default_code] = t
+
+        barcode_tmpl_map = {}
+        if barcodes:
+            for i in range(0, len(barcodes), 1000):
+                chunk = barcodes[i:i+1000]
+                for t in self.env['product.template'].search([('barcode', 'in', chunk)]):
+                    barcode_tmpl_map[t.barcode] = t
+
+        universal_attr = self._get_or_create_plows_attribute('Exhibición PLOWS')
+        attr_val_cache = {}
+        category_cache = {}
+        uom_cache = {}
 
         to_create_vals = []
+        to_create_meta = []  # Guardo (prod_id, val_ids, attr_val_exhib_map)
+        to_update_list = []  # Guardo (tmpl, changed_vals, val_ids, attr_val_exhib_map)
 
         for prod in products:
             prod_id = prod.get('pos_product_id') or prod.get('posProductId') or prod.get('id')
@@ -802,67 +1111,165 @@ class PlowsPosSyncJob(models.Model):
             description = prod.get('description') or prod.get('description_sale') or False
             active = bool(prod.get('active', True) if prod.get('status') is None else (prod.get('status') in [1, True, 'active']))
 
-            category_name = prod.get('category_name') or prod.get('category') or False
+            category_name = prod.get('categories') or prod.get('category_name') or prod.get('category') or False
             uom_name = prod.get('uom_name') or prod.get('uom') or False
 
-            categ_id = self._get_or_create_product_category(category_name) if category_name else False
-            uom_id = self._get_uom_by_name(uom_name) if uom_name else False
+            # Caché de categorías en memoria
+            categ_id = False
+            if category_name:
+                if category_name not in category_cache:
+                    category_cache[category_name] = self._get_or_create_product_category(category_name, category_cache=category_cache)
+                categ_id = category_cache[category_name]
+
+            # Caché de UOMs en memoria
+            uom_id = False
+            if uom_name:
+                if uom_name not in uom_cache:
+                    uom_cache[uom_name] = self._get_uom_by_name(uom_name)
+                uom_id = uom_cache[uom_name]
 
             product_type = 'service' if (is_service == 1 or is_service is True) else 'consu'
+            raw_attributes = prod.get('attributes') or []
 
             try:
-                p = existing_map.get(str(prod_id))
-                if not p and prod_sku:
-                    p = sku_map.get(prod_sku)
+                tmpl = existing_tmpl_map.get(str(prod_id))
+                if not tmpl and prod_sku:
+                    tmpl = sku_tmpl_map.get(prod_sku)
+                if not tmpl and barcode:
+                    tmpl = barcode_tmpl_map.get(barcode)
 
-                vals = {
+                vals_tmpl = {
                     'name': prod_name,
                     'default_code': prod_sku,
                     'type': product_type,
-                    'list_price': price if price else (p.list_price if p else 0.0),
-                    'standard_price': cost if cost else (p.standard_price if p else 0.0),
+                    'list_price': price if price else (tmpl.list_price if tmpl else 0.0),
+                    'standard_price': cost if cost else (tmpl.standard_price if tmpl else 0.0),
                     'x_id_pos': str(prod_id),
                     'x_sync_status': 'synced',
                     'x_last_sync_date': fields.Datetime.now(),
-                    'base_unit_count': 1.0
                 }
-                if barcode:
-                    vals['barcode'] = barcode
-                if description:
-                    vals['description_sale'] = description
-                if categ_id:
-                    vals['categ_id'] = categ_id.id
-                if uom_id:
-                    vals['uom_id'] = uom_id.id
-                    vals['uom_po_id'] = uom_id.id
-                if active is not None:
-                    vals['active'] = active
+                if barcode and not barcode_tmpl_map.get(barcode):
+                    vals_tmpl['barcode'] = barcode
 
-                if not p:
-                    to_create_vals.append(vals)
+                if description:
+                    vals_tmpl['description_sale'] = description
+                if categ_id:
+                    vals_tmpl['categ_id'] = categ_id.id
+                if uom_id:
+                    vals_tmpl['uom_id'] = uom_id.id
+                    vals_tmpl['uom_po_id'] = uom_id.id
+                if active is not None:
+                    vals_tmpl['active'] = active
+
+                # Pre-procesar valores de atributos en memoria
+                val_ids = []
+                attr_val_exhib_map = {}
+                if raw_attributes and isinstance(raw_attributes, list):
+                    for attr_item in raw_attributes:
+                        val_str = str(attr_item.get('attribute') or attr_item.get('name') or 'Único').strip()
+                        exhib_id = str(attr_item.get('prod_exhibicion_id') or attr_item.get('prodExhibicionId') or '')
+
+                        val_obj = attr_val_cache.get(val_str)
+                        if not val_obj:
+                            val_obj = self.env['product.attribute.value'].search([
+                                ('attribute_id', '=', universal_attr.id),
+                                ('name', '=ilike', val_str)
+                            ], limit=1)
+                            if not val_obj:
+                                val_obj = self.env['product.attribute.value'].create({
+                                    'attribute_id': universal_attr.id,
+                                    'name': val_str,
+                                })
+                            attr_val_cache[val_str] = val_obj
+
+                        val_ids.append(val_obj.id)
+                        if isinstance(attr_item, dict):
+                            attr_val_exhib_map[val_obj.id] = attr_item
+
+                if not tmpl:
+                    if self._is_create_allowed('products'):
+                        if val_ids:
+                            vals_tmpl['attribute_line_ids'] = [(0, 0, {
+                                'attribute_id': universal_attr.id,
+                                'value_ids': [(6, 0, val_ids)]
+                            })]
+                        to_create_vals.append(vals_tmpl)
+                        to_create_meta.append((str(prod_id), val_ids, attr_val_exhib_map))
                 else:
-                    changed = False
-                    for k, v in vals.items():
+                    changed_vals = {}
+                    for k, v in vals_tmpl.items():
                         if k in ['x_last_sync_date']:
                             continue
-                        if getattr(p, k) != v:
-                            if hasattr(getattr(p, k), 'id') and getattr(getattr(p, k), 'id') == v:
-                                continue
-                            changed = True
-                            break
-                    if changed:
-                        p.write(vals)
+                        curr_v = getattr(tmpl, k)
+                        if hasattr(curr_v, 'id'):
+                            curr_v = curr_v.id
+                        if curr_v != v:
+                            changed_vals[k] = v
+                    to_update_list.append((tmpl, changed_vals, val_ids, attr_val_exhib_map))
+
                 processed += 1
             except Exception as e:
                 failed += 1
-                self._log('error', 'catalogs', f'Fallo al preparar producto {prod_id}: {str(e)}', f'product.product:{prod_id}')
+                self._log('error', 'catalogs', f'Fallo al preparar producto {prod_id}: {str(e)}', f'product.template:{prod_id}')
 
+        def _apply_variant_mappings(tmpl_obj, exmap):
+            if not (tmpl_obj.product_variant_ids and exmap):
+                return
+            for variant in tmpl_obj.product_variant_ids:
+                for p_val in variant.product_template_attribute_value_ids.mapped('product_attribute_value_id'):
+                    attr_item = exmap.get(p_val.id)
+                    if attr_item and isinstance(attr_item, dict):
+                        v_mapped = self._get_mapped_vals('product_variants', attr_item)
+                        ex_id = str(attr_item.get('prod_exhibicion_id') or attr_item.get('prodExhibicionId') or '')
+                        p_key = str(attr_item.get('plows_key') or attr_item.get('plowsKey') or attr_item.get('sku') or attr_item.get('code') or '')
+
+                        if 'x_id_pos' not in v_mapped and ex_id:
+                            v_mapped['x_id_pos'] = ex_id
+                        if 'default_code' not in v_mapped and p_key:
+                            v_mapped['default_code'] = p_key
+
+                        v_changed = {}
+                        for vk, vv in v_mapped.items():
+                            if hasattr(variant, vk) and getattr(variant, vk) != vv:
+                                v_changed[vk] = vv
+                        if v_changed:
+                            variant.write(v_changed)
+
+        # 2. Inserción Masiva en Bloque (1 sola consulta SQL en lugar de N consultas)
         if to_create_vals:
             try:
-                self.env['product.product'].create(to_create_vals)
+                created_templates = self.env['product.template'].create(to_create_vals)
+                for created_tmpl, (pid, vids, exmap) in zip(created_templates, to_create_meta):
+                    existing_tmpl_map[pid] = created_tmpl
+                    _apply_variant_mappings(created_tmpl, exmap)
                 self._log('info', 'catalogs', f'Lote de {len(to_create_vals)} productos creados masivamente en el ORM.')
-            except Exception as e:
-                _logger.error(f"Fallo al crear productos masivamente: {str(e)}")
+            except Exception as batch_create_err:
+                _logger.error(f"Fallo al crear productos masivamente: {batch_create_err}")
+
+        # 3. Actualización Masiva Diferencial
+        for tmpl, changed_vals, val_ids, exmap in to_update_list:
+            try:
+                if changed_vals:
+                    changed_vals['x_last_sync_date'] = fields.Datetime.now()
+                    tmpl.write(changed_vals)
+
+                if val_ids:
+                    line = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == universal_attr.id)
+                    if not line:
+                        tmpl.write({
+                            'attribute_line_ids': [(0, 0, {
+                                'attribute_id': universal_attr.id,
+                                'value_ids': [(6, 0, val_ids)]
+                            })]
+                        })
+                    else:
+                        existing_val_ids = line.value_ids.ids
+                        if set(existing_val_ids) != set(val_ids):
+                            line.write({'value_ids': [(6, 0, list(set(existing_val_ids) | set(val_ids)))]})
+
+                _apply_variant_mappings(tmpl, exmap)
+            except Exception as update_err:
+                _logger.error(f"Fallo al actualizar producto {tmpl.id}: {update_err}")
 
         return processed, failed
 
@@ -871,6 +1278,7 @@ class PlowsPosSyncJob(models.Model):
         failed = 0
         cust_ids = [str(cust.get('pos_customer_id') or cust.get('posCustomerId') or cust.get('id')) for cust in customers if (cust.get('pos_customer_id') or cust.get('posCustomerId') or cust.get('id'))]
         rfcs = [cust.get('rfc') or cust.get('vat') or cust.get('tax_id') for cust in customers if (cust.get('rfc') or cust.get('vat') or cust.get('tax_id'))]
+        emails = [cust.get('email').strip() for cust in customers if cust.get('email') and isinstance(cust.get('email'), str) and cust.get('email').strip()]
 
         partners_map = {}
         for i in range(0, len(cust_ids), 1000):
@@ -886,6 +1294,15 @@ class PlowsPosSyncJob(models.Model):
             for p in found:
                 if p.vat:
                     vat_map[p.vat] = p
+
+        email_map = {}
+        if emails:
+            for i in range(0, len(emails), 1000):
+                chunk = emails[i:i+1000]
+                found = self.env['res.partner'].search([('email', 'in', chunk)])
+                for p in found:
+                    if p.email:
+                        email_map[p.email] = p
 
         to_create_vals = []
 
@@ -905,7 +1322,10 @@ class PlowsPosSyncJob(models.Model):
                 partner = partners_map.get(str(cust_id))
                 if not partner and rfc:
                     partner = vat_map.get(rfc)
+                if not partner and email and email.strip():
+                    partner = email_map.get(email.strip())
 
+                mapped_vals = self._get_mapped_vals('customers', cust)
                 vals = {
                     'name': cust_name,
                     'vat': rfc,
@@ -917,13 +1337,18 @@ class PlowsPosSyncJob(models.Model):
                     'customer_rank': 1,
                     'x_id_pos': str(cust_id)
                 }
+                vals.update(mapped_vals)
 
                 if not partner:
-                    to_create_vals.append(vals)
+                    if self._is_create_allowed('customers'):
+                        to_create_vals.append(vals)
                 else:
-                    changed = any(getattr(partner, k) != v for k, v in vals.items())
+                    changed = {}
+                    for k, v in vals.items():
+                        if getattr(partner, k) != v:
+                            changed[k] = v
                     if changed:
-                        partner.write(vals)
+                        partner.write(changed)
                 processed += 1
             except Exception as e:
                 failed += 1
@@ -943,6 +1368,7 @@ class PlowsPosSyncJob(models.Model):
         failed = 0
         supp_ids = [str(supp.get('pos_supplier_id') or supp.get('posSupplierId') or supp.get('pos_provider_id') or supp.get('posProviderId') or supp.get('id')) for supp in suppliers if (supp.get('pos_supplier_id') or supp.get('posSupplierId') or supp.get('pos_provider_id') or supp.get('posProviderId') or supp.get('id'))]
         vats = [supp.get('vat') or supp.get('rfc') or supp.get('tax_id') for supp in suppliers if (supp.get('vat') or supp.get('rfc') or supp.get('tax_id'))]
+        emails = [supp.get('email').strip() for supp in suppliers if supp.get('email') and isinstance(supp.get('email'), str) and supp.get('email').strip()]
 
         partners_map = {}
         for i in range(0, len(supp_ids), 1000):
@@ -958,6 +1384,15 @@ class PlowsPosSyncJob(models.Model):
             for p in found:
                 if p.vat:
                     vat_map[p.vat] = p
+
+        email_map = {}
+        if emails:
+            for i in range(0, len(emails), 1000):
+                chunk = emails[i:i+1000]
+                found = self.env['res.partner'].search([('email', 'in', chunk)])
+                for p in found:
+                    if p.email:
+                        email_map[p.email] = p
 
         to_create_vals = []
 
@@ -977,7 +1412,10 @@ class PlowsPosSyncJob(models.Model):
                 partner = partners_map.get(str(supp_id))
                 if not partner and vat:
                     partner = vat_map.get(vat)
+                if not partner and email and email.strip():
+                    partner = email_map.get(email.strip())
 
+                mapped_vals = self._get_mapped_vals('suppliers', supp)
                 vals = {
                     'name': supp_name,
                     'vat': vat,
@@ -989,13 +1427,18 @@ class PlowsPosSyncJob(models.Model):
                     'supplier_rank': 1,
                     'x_id_pos': str(supp_id)
                 }
+                vals.update(mapped_vals)
 
                 if not partner:
-                    to_create_vals.append(vals)
+                    if self._is_create_allowed('suppliers'):
+                        to_create_vals.append(vals)
                 else:
-                    changed = any(getattr(partner, k) != v for k, v in vals.items())
+                    changed = {}
+                    for k, v in vals.items():
+                        if getattr(partner, k) != v:
+                            changed[k] = v
                     if changed:
-                        partner.write(vals)
+                        partner.write(changed)
                 processed += 1
             except Exception as e:
                 failed += 1
@@ -1035,6 +1478,27 @@ class PlowsPosSyncJob(models.Model):
 
             try:
                 employee = emps_map.get(str(emp_id))
+                
+                # Buscar o crear partner explícito para evitar duplicados huérfanos generados por Odoo ORM
+                partner = False
+                if email and email.strip():
+                    partner = self.env['res.partner'].search([('email', '=', email.strip())], limit=1)
+                if not partner and mobile and mobile.strip():
+                    partner = self.env['res.partner'].search([('phone', '=', mobile.strip())], limit=1)
+                if not partner:
+                    partner = self.env['res.partner'].search([('name', '=ilike', emp_name)], limit=1)
+
+                if not partner and self._is_create_allowed('employees'):
+                    partner = self.env['res.partner'].create({
+                        'name': emp_name,
+                        'email': email,
+                        'phone': mobile,
+                        'x_id_pos': f"EMP-{emp_id}"
+                    })
+                elif partner and email and not partner.email:
+                    partner.write({'email': email})
+
+                mapped_vals = self._get_mapped_vals('employees', emp)
                 vals = {
                     'name': emp_name,
                     'work_email': email,
@@ -1042,13 +1506,20 @@ class PlowsPosSyncJob(models.Model):
                     'job_title': job_title,
                     'x_id_pos': str(emp_id)
                 }
+                if partner:
+                    vals['work_contact_id'] = partner.id
+                vals.update(mapped_vals)
 
                 if not employee:
-                    to_create_vals.append(vals)
+                    if self._is_create_allowed('employees'):
+                        to_create_vals.append(vals)
                 else:
-                    changed = any(getattr(employee, k) != v for k, v in vals.items())
+                    changed = {}
+                    for k, v in vals.items():
+                        if hasattr(employee, k) and getattr(employee, k) != v:
+                            changed[k] = v
                     if changed:
-                        employee.write(vals)
+                        employee.write(changed)
                 processed += 1
             except Exception as e:
                 failed += 1
@@ -1076,6 +1547,69 @@ class PlowsPosSyncJob(models.Model):
             except Exception as e:
                 failed += 1
                 self._log('error', 'catalogs', f'Fallo al procesar categoría {cat_name}: {str(e)}')
+        return processed, failed
+
+    def _sync_payment_methods_batch(self, methods):
+        processed = 0
+        failed = 0
+        pm_ids = [str(pm.get('pos_payment_method_id') or pm.get('posPaymentMethodId') or pm.get('id')) for pm in methods if (pm.get('pos_payment_method_id') or pm.get('posPaymentMethodId') or pm.get('id'))]
+
+        existing_rules = self.env['plows.pos.payment.rule'].search([('pos_payment_method_id', 'in', pm_ids)])
+        rule_map = {r.pos_payment_method_id: r for r in existing_rules}
+
+        # Cargar métodos de pago nativos de Odoo POS para autocoincidencia inteligente
+        odoo_methods = self.env['pos.payment.method'].search([])
+
+        for pm in methods:
+            pm_id = pm.get('pos_payment_method_id') or pm.get('posPaymentMethodId') or pm.get('id')
+            if not pm_id:
+                continue
+            pm_name = pm.get('pos_payment_method') or pm.get('posPaymentMethod') or pm.get('name') or f"Método {pm_id}"
+            raw_status = pm.get('status') or 'Activo'
+            is_active = bool(raw_status in [1, True, 'active', '1', 'Activo'] if raw_status is not None else True)
+
+            try:
+                rule = rule_map.get(str(pm_id))
+
+                # Inferencia / Autocoincidencia por Nombre si no tiene asignado un Método de Pago en Odoo
+                auto_odoo_method_id = False
+                if odoo_methods:
+                    clean_name = pm_name.upper()
+                    for om in odoo_methods:
+                        om_name = (om.name or '').upper()
+                        if ('EFECTIVO' in clean_name and ('CASH' in om_name or 'EFECTIVO' in om_name)) or \
+                           ('TARJETA' in clean_name and ('CARD' in om_name or 'TARJETA' in om_name or 'BANK' in om_name)) or \
+                           ('TRANSFERENCIA' in clean_name and ('BANK' in om_name or 'TRANSF' in om_name)) or \
+                           (clean_name == om_name):
+                            auto_odoo_method_id = om.id
+                            break
+
+                vals = {
+                    'pos_payment_method_id': str(pm_id),
+                    'name': pm_name,
+                    'pos_payment_desc': str(raw_status),
+                    'is_active': is_active,
+                }
+
+                if not rule:
+                    if self._is_create_allowed('payment_methods'):
+                        if auto_odoo_method_id:
+                            vals['odoo_payment_method_id'] = auto_odoo_method_id
+                        self.env['plows.pos.payment.rule'].create(vals)
+                else:
+                    changed = {}
+                    if not rule.odoo_payment_method_id and auto_odoo_method_id:
+                        vals['odoo_payment_method_id'] = auto_odoo_method_id
+                    for k, v in vals.items():
+                        if getattr(rule, k) != v:
+                            changed[k] = v
+                    if changed:
+                        rule.write(changed)
+                processed += 1
+            except Exception as e:
+                failed += 1
+                self._log('error', 'catalogs', f'Fallo al preparar regla de método de pago {pm_id}: {str(e)}', f'plows.pos.payment.rule:{pm_id}')
+
         return processed, failed
 
     def _sync_payment_rules_batch(self, payment_rules):

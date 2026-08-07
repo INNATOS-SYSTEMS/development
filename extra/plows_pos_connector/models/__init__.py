@@ -17,4 +17,7 @@ from . import sale_order
 from . import purchase_order
 from . import plows_pos_closure
 from . import plows_pos_closure_movement
+from . import plows_sync_staging
+from . import plows_field_mapping
+from . import pos_payment_method
 

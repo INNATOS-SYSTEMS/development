@@ -42,6 +42,7 @@ Se conecta a las APIs expuestas por Plows POS para descargar y sincronizar:
         'views/stock_location_views.xml',
         'views/hr_employee_views.xml',
         'views/plows_mapping_views.xml',
+        'views/plows_field_mapping_views.xml',
         'views/plows_sync_job_views.xml',
         'views/plows_pos_sync_log_views.xml',
         'views/plows_pos_closure_views.xml',
@@ -54,6 +55,7 @@ Se conecta a las APIs expuestas por Plows POS para descargar y sincronizar:
 
     'assets': {
         'web.assets_backend': [
+            'plows_pos_connector/static/src/js/plows_sync_bus.js',
             'plows_pos_connector/static/src/components/pos_sync_dashboard/pos_sync_dashboard.js',
             'plows_pos_connector/static/src/components/pos_sync_dashboard/pos_sync_dashboard.xml',
             'plows_pos_connector/static/src/components/pos_sync_dashboard/pos_sync_dashboard.scss',
