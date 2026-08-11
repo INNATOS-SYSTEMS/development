@@ -699,7 +699,8 @@ class PlowsPosSyncJob(models.Model):
                 'record_ref': record_ref or False,
             })
         except Exception as log_err:
-            _logger.error(f"No se pudo persistir log de sync job {self.name}: {log_err}")
+            _logger.error(f"No se pudo persistir log de sync job (ID {self.id if self else 'unknown'}): {log_err}")
+
 
     def _auto_renew_token(self, url_base):
         """ Regenera el token automáticamente desde la API usando el tenant_id configurado """
@@ -862,7 +863,7 @@ class PlowsPosSyncJob(models.Model):
 
         except SyncAbortError as abort_err:
             error_trace = traceback.format_exc()
-            _logger.error(f"SyncAbortError en job {self.name}: {abort_err}\n{error_trace}")
+            _logger.error(f"SyncAbortError en job ID {self.id if self else 'unknown'}: {abort_err}\n{error_trace}")
             self._log('error', 'catalogs',
                       f'ABORTO CRÍTICO: {str(abort_err)}. Fases posteriores canceladas.')
             self.write({
@@ -874,7 +875,8 @@ class PlowsPosSyncJob(models.Model):
 
         except Exception as e:
             error_trace = traceback.format_exc()
-            _logger.error(f"Error general en Plows Sync Job {self.name}: {str(e)}\n{error_trace}")
+            _logger.error(f"Error general en Plows Sync Job ID {self.id if self else 'unknown'}: {str(e)}\n{error_trace}")
+
             self._log('error', 'catalogs',
                       f'Error general inesperado: {str(e)}')
             self.write({
@@ -887,17 +889,14 @@ class PlowsPosSyncJob(models.Model):
         self.env.cr.commit()
 
     def _sync_closures_phase(self):
-        """ FASE 2: Cortes de Caja — stub pendiente de implementación en fase 2. """
-        self._log('info', 'closures',
-                  'Fase de Cortes de Caja: pendiente de implementación en fase 2. '
-                  'Reutiliza la lógica de _sync_incomes() en la siguiente fase.')
-        return 0, 0
+        """ FASE 2: Sincronización de Cortes de Caja e Ingresos (Tickets) """
+        processed, failed, logs = self._sync_incomes()
+        return processed, failed
 
     def _sync_movements_tickets_phase(self):
-        """ FASE 3: Movimientos y Tickets — stub pendiente de implementación en fase 2. """
-        self._log('info', 'movements_tickets',
-                  'Fase de Movimientos/Tickets: pendiente de implementación en fase 2. '
-                  'Reutiliza la lógica de _sync_expenses() y la parte de tickets de _sync_incomes().')
+        """ FASE 3: Sincronización de Egresos / Movimientos de Caja Chica """
+        processed, failed, logs = self._sync_expenses()
+        return processed, failed
     def _get_or_create_product_category(self, name, category_cache=None):
         """ Retorna o crea una categoría jerárquica basada en una cadena con / (ej. 'Electrónica / Pantallas') con caché en memoria. """
         if not name:
@@ -1051,12 +1050,73 @@ class PlowsPosSyncJob(models.Model):
                         if changed:
                             loc.write(vals)
                             self._log('info', 'catalogs', f"Ubicación actualizada: '{wh_name}'")
+                    
+                    # Sincronizar Puntos de Venta (pos.config) según controls o Almacén
+                    controls = wh.get('controls') or wh.get('Controls') or []
+                    self._sync_pos_configs_for_warehouse(wh_id, wh_name, controls)
                     processed += 1
             except Exception as e:
                 failed += 1
                 self._log('error', 'catalogs', f'Fallo al guardar ubicación {wh_id}: {str(e)}',
                           f'stock.location:{wh_id}')
         return processed, failed
+
+    def _sync_pos_configs_for_warehouse(self, wh_id, wh_name, controls):
+        """ Sincroniza las pos.config para un almacén según sus cajas (controls) """
+        picking_type = self.env['stock.picking.type'].search([('code', '=', 'outgoing')], limit=1)
+        
+        # Odoo 19 prohibe compartir métodos de pago tipo Efectivo en múltiples pos.config
+        payment_methods = self.env['pos.payment.method'].search([('journal_id.type', '!=', 'cash')])
+        if not payment_methods:
+            payment_methods = self.env['pos.payment.method'].search([])
+        pm_cmd = [(6, 0, payment_methods.ids)] if payment_methods else False
+
+
+        if controls and len(controls) > 0:
+            # Si el almacén tiene cajas, marcamos/actualizamos pos.config previo del almacén genérico si existe
+            old_wh_cfg = self.env['pos.config'].search([('x_id_pos', '=', str(wh_id)), ('name', '=', wh_name)], limit=1)
+            if old_wh_cfg:
+                old_wh_cfg.write({'name': f"{wh_name} (General)"})
+
+            for ctrl in controls:
+                ctrl_id = str(ctrl.get('posControlId') or ctrl.get('pos_control_id') or ctrl.get('id'))
+                ctrl_name = ctrl.get('posControlName') or ctrl.get('pos_control_name') or ctrl.get('name') or f"Caja {ctrl_id}"
+                cfg_name = f"{wh_name} - {ctrl_name}"
+                
+                pos_cfg = self.env['pos.config'].search([('x_id_pos', '=', ctrl_id)], limit=1)
+                if not pos_cfg:
+                    pos_cfg = self.env['pos.config'].search([('name', '=', cfg_name)], limit=1)
+                
+                vals = {'name': cfg_name, 'x_id_pos': ctrl_id}
+                if pm_cmd:
+                    vals['payment_method_ids'] = pm_cmd
+                if picking_type and not pos_cfg:
+                    vals['picking_type_id'] = picking_type.id
+                
+                if not pos_cfg:
+                    self.env['pos.config'].create(vals)
+                    self._log('info', 'catalogs', f"Punto de Venta creado por Caja: '{cfg_name}' (ID POS Control: {ctrl_id})")
+                else:
+                    pos_cfg.write(vals)
+        else:
+            # Almacén sin cajas: 1 pos.config con el nombre del almacén
+            cfg_name = wh_name
+            pos_cfg = self.env['pos.config'].search([('x_id_pos', '=', str(wh_id))], limit=1)
+            if not pos_cfg:
+                pos_cfg = self.env['pos.config'].search([('name', '=', cfg_name)], limit=1)
+            
+            vals = {'name': cfg_name, 'x_id_pos': str(wh_id)}
+            if pm_cmd:
+                vals['payment_method_ids'] = pm_cmd
+            if picking_type and not pos_cfg:
+                vals['picking_type_id'] = picking_type.id
+            
+            if not pos_cfg:
+                self.env['pos.config'].create(vals)
+                self._log('info', 'catalogs', f"Punto de Venta creado para Almacén sin cajas: '{cfg_name}' (ID POS: {wh_id})")
+            else:
+                pos_cfg.write(vals)
+
 
     def _sync_products_batch(self, products):
         self = self.with_context(tracking_disable=True, mail_notrack=True, mail_create_nolog=True, recompute=False)
@@ -1516,7 +1576,10 @@ class PlowsPosSyncJob(models.Model):
                 else:
                     changed = {}
                     for k, v in vals.items():
-                        if hasattr(employee, k) and getattr(employee, k) != v:
+                        curr_val = getattr(employee, k) if hasattr(employee, k) else False
+                        if isinstance(curr_val, models.BaseModel):
+                            curr_val = curr_val.id if curr_val else False
+                        if curr_val != v:
                             changed[k] = v
                     if changed:
                         employee.write(changed)
@@ -1634,13 +1697,16 @@ class PlowsPosSyncJob(models.Model):
             failed += 1
             self._log('error', 'catalogs', f'Error sincronizando impuestos: {str(e)}')
 
-        # 2. Almacenes (Ubicaciones)
-        self._log('info', 'catalogs', 'Sincronizando Sucursales/Almacenes...')
+        # 2. Almacenes (Ubicaciones y Puntos de Venta por Cajas)
+        self._log('info', 'catalogs', 'Sincronizando Sucursales/Almacenes y Puntos de Venta...')
         try:
-            warehouses = self._call_api('catalogs/warehouses')
-            p, f = self._sync_locations_batch(warehouses)
-            processed += p
-            failed += f
+            for page, warehouses in self._call_api_paginated('catalogs/warehouses', limit=100):
+                if not warehouses:
+                    continue
+                self._log('info', 'catalogs', f'Procesando lote de Almacenes y Puntos de Venta (Página {page}, {len(warehouses)} registros)...')
+                p, f = self._sync_locations_batch(warehouses)
+                processed += p
+                failed += f
         except Exception as e:
             failed += 1
             self._log('error', 'catalogs', f'Error sincronizando almacenes: {str(e)}')
@@ -1704,8 +1770,48 @@ class PlowsPosSyncJob(models.Model):
         return processed, failed
 
 
+    def _create_pos_session_for_closure(self, location=None, pos_control_id=None, closure=None):
+        """ Helper para crear una nueva pos.session dedicada a un corte de caja en su PdV correspondiente """
+        pos_config = False
+        if pos_control_id:
+            pos_config = self.env['pos.config'].search([('x_id_pos', '=', str(pos_control_id))], limit=1)
+        
+        if not pos_config and location and location.x_id_pos:
+            pos_config = self.env['pos.config'].search([('x_id_pos', '=', str(location.x_id_pos))], limit=1)
+            
+        if not pos_config and location and location.name:
+            pos_config = self.env['pos.config'].search([('name', '=', location.name)], limit=1)
+            
+        if not pos_config:
+            pos_config = self.env['pos.config'].search([], limit=1)
+            
+        if not pos_config:
+            picking_type = self.env['stock.picking.type'].search([('code', '=', 'outgoing')], limit=1)
+            pos_config = self.env['pos.config'].create({
+                'name': 'Plows POS Sync',
+                'picking_type_id': picking_type.id if picking_type else False,
+            })
+
+        # Si existen sesiones abiertas en este config, cerrar para poder abrir la nueva del corte
+        open_sessions = self.env['pos.session'].search([('config_id', '=', pos_config.id), ('state', '!=', 'closed')])
+        for os in open_sessions:
+            try:
+                os.write({'state': 'closed', 'stop_at': fields.Datetime.now()})
+            except Exception:
+                pass
+
+
+        session_name = f"{pos_config.name}/Corte-{closure.name if closure else 'Sync'}"
+        session = self.env['pos.session'].create({
+            'name': session_name,
+            'config_id': pos_config.id,
+            'user_id': self.env.user.id,
+            'state': 'opened',
+        })
+        return session
+
     def _sync_incomes(self):
-        """ Sincroniza cierres de caja y sus correspondientes tickets de venta """
+        """ Sincroniza cierres de caja y sus correspondientes tickets de venta como pos.order """
         log_lines = []
         processed = 0
         failed = 0
@@ -1713,9 +1819,9 @@ class PlowsPosSyncJob(models.Model):
         log_lines.append("<h5>Obteniendo Cortes de Caja...</h5>")
         params = {}
         if self.start_date:
-            params['start_date'] = self.start_date.strftime('%Y-%m-%d %H:%M:%S')
+            params['start_date'] = self.start_date.strftime('%Y-%m-%d')
         if self.end_date:
-            params['end_date'] = self.end_date.strftime('%Y-%m-%d %H:%M:%S')
+            params['end_date'] = self.end_date.strftime('%Y-%m-%d')
             
         try:
             for page, closures in self._call_api_paginated('processes/closures', limit=100, extra_params=params):
@@ -1724,139 +1830,193 @@ class PlowsPosSyncJob(models.Model):
                 log_lines.append(f"<p>Procesando lote de cierres de caja (Página {page}, {len(closures)} cierres)...</p>")
                 
                 for c in closures:
-                    closure_id_pos = c.get('posClosureId')
+                    closure_id_pos = c.get('posClosureId') or c.get('pos_closure_id') or c.get('id')
                     if not closure_id_pos:
                         continue
                 
-                # Buscar ubicación/almacén
-                wh_id = c.get('posWarehouseId')
-                loc = self.env['stock.location'].search([('x_id_pos', '=', str(wh_id))], limit=1)
-                
-                # Buscar responsable
-                resp_id = c.get('responsibleId')
-                employee = self.env['hr.employee'].search([('x_id_pos', '=', str(resp_id))], limit=1)
-                
-                totals = c.get('totals', {})
-                
-                vals = {
-                    'x_id_pos': closure_id_pos,
-                    'session_number': c.get('sessionNumber'),
-                    'location_id': loc.id if loc else False,
-                    'closing_date': c.get('closingDate'),
-                    'closing_time': c.get('closingTime'),
-                    'total_sales': c.get('totalSales'),
-                    'total_refunds': c.get('totalRefunds'),
-                    'total_shortage': c.get('totalShortage'),
-                    'shortage_notes': c.get('shortageNotes'),
-                    'responsible_id': employee.id if employee else False,
-                    'card_total': totals.get('card', 0.0),
-                    'cash_total': totals.get('cash', 0.0),
-                    'transfers_total': totals.get('transfers', 0.0),
-                    'checks_total': totals.get('checks', 0.0),
-                    'other_total': totals.get('other', 0.0),
-                    'notes': c.get('notes'),
-                    'state': 'synced'
-                }
-                
-                closure = self.env['plows.pos.closure'].search([('x_id_pos', '=', closure_id_pos)], limit=1)
-                if not closure:
-                    closure = self.env['plows.pos.closure'].create(vals)
-                    log_lines.append(f"<p style='color:green;'><b>Cierre Creado:</b> Folio {closure.name} (ID POS: {closure_id_pos})</p>")
-                else:
-                    closure.write(vals)
-                    log_lines.append(f"<p><b>Cierre Actualizado:</b> Folio {closure.name}</p>")
-                
-                # Sincronizar Tickets de este cierre
-                try:
-                    tickets = self._call_api(f'processes/closures/{closure_id_pos}/tickets')
-                    log_lines.append(f"<ul><li>Cierre {closure.name}: Descargando {len(tickets)} tickets.</li>")
+                    # Buscar ubicación/almacén
+                    wh_id = c.get('posWarehouseId') or c.get('pos_warehouse_id')
+                    loc = self.env['stock.location'].search([('x_id_pos', '=', str(wh_id))], limit=1)
                     
-                    for t in tickets:
-                        tkt_id_pos = t.get('posTicketId')
-                        if not tkt_id_pos:
-                            continue
-                            
-                        order = self.env['sale.order'].search([('x_id_pos', '=', str(tkt_id_pos))], limit=1)
-                        if order:
-                            log_lines.append(f"<li>Ticket {order.name} (ID POS: {tkt_id_pos}) ya importado. Omitiendo.</li>")
-                            continue
-                            
-                        # Determinar cliente
-                        cust_id = t.get('posCustomerId')
-                        partner = self.env['res.partner'].search([('x_id_pos', '=', str(cust_id))], limit=1)
-                        if not partner:
-                            # Fallback cliente por defecto
-                            default_cust_param = self.env['ir.config_parameter'].sudo().get_param('plows_pos_connector.default_customer_id')
-                            if default_cust_param:
-                                partner = self.env['res.partner'].browse(int(default_cust_param))
-                        if not partner:
-                            log_lines.append(f"<li style='color:red;'>Error Ticket {tkt_id_pos}: Cliente con ID POS {cust_id} no encontrado y no hay cliente por defecto.</li>")
-                            failed += 1
-                            continue
-                            
-                        # Determinar almacén Odoo a partir de ubicación
-                        warehouse = False
-                        if loc:
-                            warehouse = self.env['stock.warehouse'].search([('lot_stock_id', '=', loc.id)], limit=1)
-                        if not warehouse:
-                            warehouse = self.env['stock.warehouse'].search([], limit=1)
-                            
-                        order_vals = {
-                            'partner_id': partner.id,
-                            'warehouse_id': warehouse.id if warehouse else False,
-                            'date_order': t.get('orderDate'),
-                            'x_id_pos': str(tkt_id_pos),
-                            'x_closure_id': closure.id,
-                            'note': t.get('notes') or '',
-                            'order_line': []
-                        }
+                    # Buscar responsable
+                    resp_id = c.get('responsibleId') or c.get('responsible_id')
+                    employee = self.env['hr.employee'].search([('x_id_pos', '=', str(resp_id))], limit=1)
+                    
+                    totals = c.get('totals', {})
+                    session_num_str = str(c.get('sessionNumber') or c.get('session_number') or '')
+                    pos_control_id = c.get('posControlId') or c.get('pos_control_id')
+                    
+                    vals = {
+                        'x_id_pos': str(closure_id_pos),
+                        'session_number': session_num_str,
+                        'location_id': loc.id if loc else False,
+                        'closing_date': c.get('closingDate') or c.get('closing_date'),
+                        'closing_time': c.get('closingTime') or c.get('closing_time'),
+                        'total_sales': c.get('totalSales') or c.get('total_sales') or 0.0,
+                        'total_refunds': c.get('totalRefunds') or c.get('total_refunds') or 0.0,
+                        'total_shortage': c.get('totalShortage') or c.get('total_shortage'),
+                        'shortage_notes': c.get('shortageNotes') or c.get('shortage_notes'),
+                        'responsible_id': employee.id if employee else False,
+                        'card_total': totals.get('card', 0.0),
+                        'cash_total': totals.get('cash', 0.0),
+                        'transfers_total': totals.get('transfers', 0.0),
+                        'checks_total': totals.get('checks', 0.0),
+                        'other_total': totals.get('other', 0.0),
+                        'notes': c.get('notes'),
+                        'state': 'synced'
+                    }
+                    
+                    closure = self.env['plows.pos.closure'].search([('x_id_pos', '=', str(closure_id_pos))], limit=1)
+                    if not closure:
+                        closure = self.env['plows.pos.closure'].create(vals)
+                        log_lines.append(f"<p style='color:green;'><b>Cierre Creado:</b> Folio {closure.name} (ID POS: {closure_id_pos})</p>")
+                    else:
+                        closure.write(vals)
+                        log_lines.append(f"<p><b>Cierre Actualizado:</b> Folio {closure.name}</p>")
+                    
+                    # Obtenemos o creamos la sesión de POS dedicada a este cierre
+                    pos_session = self._create_pos_session_for_closure(loc, pos_control_id, closure)
+
+                    # Sincronizar Tickets de este cierre
+                    try:
+                        tickets = self._call_api(f'processes/closures/{closure_id_pos}/tickets')
+                        log_lines.append(f"<ul><li>Cierre {closure.name}: Descargando {len(tickets)} tickets.</li>")
                         
-                        line_errors = False
-                        for line in t.get('lines', []):
-                            pos_prod_id = line.get('posProductId')
-                            product = self.env['product.product'].search([('x_id_pos', '=', str(pos_prod_id))], limit=1)
-                            if not product:
-                                log_lines.append(f"<li style='color:red;'>Error Ticket {tkt_id_pos}: Producto POS ID {pos_prod_id} no está sincronizado en Odoo.</li>")
-                                line_errors = True
-                                break
-                                
-                            # Mapear impuesto
-                            pos_tax_id = line.get('posTaxId')
-                            tax_ids = []
-                            if pos_tax_id:
-                                tax_rule = self.env['plows.pos.tax.rule'].search([('name', '=', str(pos_tax_id))], limit=1)
-                                if tax_rule and tax_rule.odoo_tax_id:
-                                    tax_ids = [(4, tax_rule.odoo_tax_id.id)]
+                        for t in tickets:
+                            try:
+                                tkt_id_pos = t.get('posTicketId') or t.get('pos_ticket_id') or t.get('id')
+                                if not tkt_id_pos:
+                                    continue
                                     
-                            order_vals['order_line'].append((0, 0, {
-                                'product_id': product.id,
-                                'product_uom_qty': line.get('qty', 1.0),
-                                'price_unit': line.get('priceUnit', 0.0),
-                                'discount': line.get('discount', 0.0) or 0.0,
-                                'tax_id': tax_ids
-                            }))
-                            
-                        if line_errors:
-                            failed += 1
-                            continue
-                            
-                        new_order = self.env['sale.order'].create(order_vals)
-                        try:
-                            new_order.action_confirm()
-                            log_lines.append(f"<li style='color:green;'>Ticket importado y confirmado: {new_order.name}</li>")
-                            processed += 1
-                        except Exception as ex:
-                            log_lines.append(f"<li style='color:orange;'>Ticket importado como borrador (Fallo de confirmación: {str(ex)}): {new_order.name}</li>")
-                            processed += 1
-                            
-                    log_lines.append("</ul>")
+                                pos_order = self.env['pos.order'].search([('x_id_pos', '=', str(tkt_id_pos))], limit=1)
+                                if pos_order:
+                                    log_lines.append(f"<li>Ticket {pos_order.name} (ID POS: {tkt_id_pos}) ya importado. Omitiendo.</li>")
+                                    continue
+                                    
+                                # Determinar cliente
+                                cust_id = t.get('posCustomerId') or t.get('pos_customer_id')
+                                partner = self.env['res.partner'].search([('x_id_pos', '=', str(cust_id))], limit=1) if cust_id else False
+                                if not partner:
+                                    default_cust_param = self.env['ir.config_parameter'].sudo().get_param('plows_pos_connector.default_customer_id')
+                                    if default_cust_param:
+                                        partner = self.env['res.partner'].browse(int(default_cust_param))
+                                if not partner:
+                                    partner = self.env['res.partner'].search([('name', '=ilike', 'Público General')], limit=1)
+                                if not partner:
+                                    partner = self.env['res.partner'].search([], limit=1)
+                                    
+                                no_mov = str(t.get('noMov') or t.get('no_mov') or f"POS/{tkt_id_pos}")
+                                order_date_raw = t.get('orderDate') or t.get('order_date')
+                                if isinstance(order_date_raw, str):
+                                    order_date = order_date_raw.replace('T', ' ')
+                                else:
+                                    order_date = order_date_raw or fields.Datetime.now()
+                                
+                                order_vals = {
+                                    'name': no_mov,
+                                    'x_id_pos': str(tkt_id_pos),
+                                    'x_no_mov': no_mov,
+                                    'x_closure_id': closure.id,
+                                    'session_id': pos_session.id,
+                                    'partner_id': partner.id if partner else False,
+                                    'date_order': order_date,
+                                    'company_id': self.env.company.id,
+                                    'amount_tax': 0.0,
+                                    'amount_total': 0.0,
+                                    'amount_paid': 0.0,
+                                    'amount_return': 0.0,
+                                    'state': 'paid',
+                                    'lines': []
+                                }
+                                
+                                total_tax = 0.0
+                                total_amount = 0.0
+
+                                for line in t.get('lines', []):
+                                    pos_prod_id = line.get('posProductId') or line.get('pos_product_id')
+                                    product = False
+                                    if pos_prod_id:
+                                        product = self.env['product.product'].search(['|', ('x_id_pos', '=', str(pos_prod_id)), ('x_id_exhibicion_pos', '=', str(pos_prod_id))], limit=1)
+                                    if not product:
+                                        pos_prod_name = line.get('posProductName') or line.get('pos_product_name') or ''
+                                        if pos_prod_name:
+                                            first_code = pos_prod_name.split()[0]
+                                            product = self.env['product.product'].search([('default_code', '=', first_code)], limit=1)
+                                    if not product:
+                                        product = self.env['product.product'].search([], limit=1)
+                                        
+                                    qty = float(line.get('qty', 1.0))
+                                    price_unit = float(line.get('priceUnit') or line.get('price_unit') or 0.0)
+                                    discount = float(line.get('discount') or 0.0)
+                                    subtotal = float(line.get('priceSubtotal') or line.get('price_subtotal') or (qty * price_unit))
+                                    tax_amt = float(line.get('taxAmount') or line.get('tax_amount') or 0.0)
+                                    subtotal_incl = float(line.get('priceTotal') or line.get('price_total') or (subtotal + tax_amt))
+
+                                    total_tax += tax_amt
+                                    total_amount += subtotal_incl
+
+                                    pos_tax_id = line.get('posTaxId') or line.get('pos_tax_id')
+                                    tax_ids = []
+                                    if pos_tax_id:
+                                        tax_rule = self.env['plows.pos.tax.rule'].search([('name', '=', str(pos_tax_id))], limit=1)
+                                        if tax_rule and tax_rule.odoo_tax_id:
+                                            tax_ids = [(4, tax_rule.odoo_tax_id.id)]
+                                            
+                                    order_vals['lines'].append((0, 0, {
+                                        'product_id': product.id if product else False,
+                                        'qty': qty,
+                                        'price_unit': price_unit,
+                                        'discount': discount,
+                                        'price_subtotal': subtotal,
+                                        'price_subtotal_incl': subtotal_incl,
+                                        'tax_ids': tax_ids
+                                    }))
+                                    
+                                order_vals['amount_tax'] = total_tax
+                                order_vals['amount_total'] = total_amount
+                                order_vals['amount_paid'] = total_amount
+
+                                new_order = self.env['pos.order'].create(order_vals)
+                                
+                                # Agregar pagos
+                                for p in t.get('payments', []):
+                                    pm_name = p.get('posPaymentMethod') or p.get('pos_payment_method') or 'EFECTIVO'
+                                    pm_amount = float(p.get('amount') or p.get('paid') or total_amount)
+                                    
+                                    rule = self.env['plows.pos.payment.rule'].search([('name', '=ilike', pm_name)], limit=1)
+                                    odoo_pm = rule.odoo_payment_method_id if (rule and rule.odoo_payment_method_id) else False
+                                    if not odoo_pm:
+                                        odoo_pm = self.env['pos.payment.method'].search([], limit=1)
+                                        
+                                    if odoo_pm:
+                                        self.env['pos.payment'].create({
+                                            'pos_order_id': new_order.id,
+                                            'payment_method_id': odoo_pm.id,
+                                            'amount': pm_amount,
+                                            'payment_date': order_date,
+                                        })
+
+                                log_lines.append(f"<li style='color:green;'>Ticket pos.order importado: {new_order.name} (${total_amount:.2f})</li>")
+                                processed += 1
+                            except Exception as ticket_err:
+                                failed += 1
+                                log_lines.append(f"<li style='color:red;'>Error procesando ticket en cierre {closure_id_pos}: {str(ticket_err)}</li>")
+                                
+                        log_lines.append("</ul>")
+                        
+                    except Exception as e:
+                        failed += 1
+                        log_lines.append(f"<p style='color:red;'>Error descargando tickets para cierre {closure_id_pos}: {str(e)}</p>")
                     
-                except Exception as e:
-                    failed += 1
-                    log_lines.append(f"<p style='color:red;'>Error descargando/procesando tickets para cierre {closure_id_pos}: {str(e)}</p>")
-                
-                processed += 1
-                
+                    # Cerrar formalmente la sesión al finalizar la importación del corte
+                    try:
+                        pos_session.write({'state': 'closed', 'stop_at': fields.Datetime.now()})
+                    except Exception as session_close_err:
+                        _logger.warning(f"No se pudo cambiar estado de pos.session {pos_session.id} a closed: {session_close_err}")
+
+                        
+                    processed += 1
+                    
         except Exception as e:
             failed += 1
             log_lines.append(f"<p style='color:red;'>Fallo en consulta de cierres de caja: {str(e)}</p>")

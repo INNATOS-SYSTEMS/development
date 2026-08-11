@@ -21,7 +21,7 @@ class PlowsPosSyncDashboard(models.TransientModel):
         """ Evalúa la salud global del sistema en 3 niveles: healthy, degraded, critical """
         failed_jobs = self.env['plows.pos.sync.job'].search_count([('state', '=', 'failed')])
         failed_closures = self.env['plows.pos.closure'].search_count([('state', '=', 'failed')])
-        unmapped_taxes = self.env['plows.pos.tax.rule'].search_count([('account_tax_id', '=', False)])
+        unmapped_taxes = self.env['plows.pos.tax.rule'].search_count([('odoo_tax_id', '=', False)])
         unmapped_payments = self.env['plows.pos.payment.rule'].search_count([('journal_id', '=', False)])
 
         retrying_tasks = self.env['plows.pos.sync.task'].search_count([('state', '=', 'retrying')])
@@ -114,7 +114,7 @@ class PlowsPosSyncDashboard(models.TransientModel):
                 'target_res_id': r.id,
             })
 
-        unmapped_taxes = self.env['plows.pos.tax.rule'].search([('account_tax_id', '=', False)])
+        unmapped_taxes = self.env['plows.pos.tax.rule'].search([('odoo_tax_id', '=', False)])
         for t in unmapped_taxes:
             warnings.append({
                 'id': f"TAX_{t.id}",

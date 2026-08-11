@@ -20,4 +20,5 @@ from . import plows_pos_closure_movement
 from . import plows_sync_staging
 from . import plows_field_mapping
 from . import pos_payment_method
+from . import pos_order
 

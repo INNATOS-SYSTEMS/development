@@ -21,26 +21,12 @@
               parent="menu_plows_pos_root"
               sequence="20"/>
 
-    <!-- Operaciones → Ingresos (Cortes de Caja sincronizados) -->
+    <!-- Operaciones → Ingresos (Cortes de Caja / plows.pos.closure) -->
     <menuitem id="menu_plows_pos_incomes_action"
               name="Ingresos"
               parent="menu_plows_pos_operations"
               action="action_plows_pos_closure"
               sequence="10"/>
-
-    <!-- Operaciones → Egresos (stub para fase futura) -->
-    <menuitem id="menu_plows_pos_expenses_action"
-              name="Egresos"
-              parent="menu_plows_pos_operations"
-              action="action_plows_pos_expense"
-              sequence="20"/>
-
-    <!-- Operaciones → Inventario (stub para fase futura) -->
-    <menuitem id="menu_plows_pos_inventory_action"
-              name="Inventario"
-              parent="menu_plows_pos_operations"
-              action="action_plows_pos_inventory"
-              sequence="30"/>
 
     <!-- Submenú Catálogos POS -->
     <menuitem id="menu_plows_pos_catalogs"

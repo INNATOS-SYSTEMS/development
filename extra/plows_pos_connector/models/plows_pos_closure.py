@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api
+from datetime import datetime
 
 class PlowsPosClosure(models.Model):
     _name = 'plows.pos.closure'
     _description = 'Corte de Caja Plows POS'
-    _order = 'closing_date desc, closing_time desc'
+    _order = 'closing_date desc, closing_time desc, id desc'
 
     name = fields.Char(string='Folio del Cierre', required=True, copy=False, default='Nuevo')
-    x_id_pos = fields.Integer(string='ID Cierre Plows POS', index=True, required=True, copy=False)
-    session_number = fields.Integer(string='Número de Sesión')
+    x_id_pos = fields.Char(string='ID Cierre Plows POS', index=True, required=True, copy=False)
+    session_number = fields.Char(string='Número de Sesión')
     location_id = fields.Many2one('stock.location', string='Almacén / Ubicación stock', domain=[('x_id_pos', '!=', False)])
     closing_date = fields.Date(string='Fecha de Cierre')
     closing_time = fields.Char(string='Hora de Cierre')
@@ -34,12 +35,25 @@ class PlowsPosClosure(models.Model):
         ('failed', 'Fallo')
     ], string='Estado', default='draft', required=True)
 
-    ticket_ids = fields.One2many('sale.order', 'x_closure_id', string='Tickets de Venta')
+    ticket_ids = fields.One2many('pos.order', 'x_closure_id', string='Tickets de Venta')
     movement_ids = fields.One2many('plows.pos.closure.movement', 'closure_id', string='Movimientos de Caja Chica')
 
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
-            if vals.get('name', 'Nuevo') == 'Nuevo':
-                vals['name'] = self.env['ir.sequence'].next_by_code('plows.pos.closure') or 'Nuevo'
+            if vals.get('name', 'Nuevo') in ['Nuevo', False, '']:
+                closing_date = vals.get('closing_date')
+                date_str = ''
+                if closing_date:
+                    if isinstance(closing_date, str):
+                        date_str = closing_date.replace('-', '')
+                    else:
+                        date_str = closing_date.strftime('%Y%m%d')
+                else:
+                    date_str = fields.Date.today().strftime('%Y%m%d')
+
+                # Calcular secuencia por fecha de cierre
+                existing_count = self.search_count([('closing_date', '=', closing_date)]) if closing_date else 0
+                seq = str(existing_count + 1).zfill(4)
+                vals['name'] = f"CORTE/{date_str}/{seq}"
         return super(PlowsPosClosure, self).create(vals_list)

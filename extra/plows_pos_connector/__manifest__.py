@@ -26,6 +26,7 @@ Se conecta a las APIs expuestas por Plows POS para descargar y sincronizar:
         'purchase',
         'hr',
         'website_sale',
+        'point_of_sale',
     ],
 
     'data': [
@@ -46,6 +47,7 @@ Se conecta a las APIs expuestas por Plows POS para descargar y sincronizar:
         'views/plows_sync_job_views.xml',
         'views/plows_pos_sync_log_views.xml',
         'views/plows_pos_closure_views.xml',
+        'views/pos_order_views.xml',
         'views/plows_pos_expense_views.xml',
         'views/plows_pos_inventory_views.xml',
         'views/plows_dashboard_views.xml',

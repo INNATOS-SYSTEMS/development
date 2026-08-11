@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Extensión del formulario nativo de pos.order para mostrar campos de Plows POS -->
+    <record id="view_pos_order_form_inherit_plows" model="ir.ui.view">
+        <field name="name">pos.order.form.inherit.plows</field>
+        <field name="model">pos.order</field>
+        <field name="inherit_id" ref="point_of_sale.view_pos_pos_form"/>
+        <field name="arch" type="xml">
+            <field name="partner_id" position="after">
+                <field name="x_id_pos" readonly="1" string="ID Ticket POS"/>
+                <field name="x_closure_id" readonly="1" string="Cierre de Caja POS"/>
+                <field name="x_no_mov" readonly="1" string="Folio POS"/>
+            </field>
+        </field>
+    </record>
+
+    <!-- Extensión de la lista nativa de pos.order -->
+    <record id="view_pos_order_tree_inherit_plows" model="ir.ui.view">
+        <field name="name">pos.order.list.inherit.plows</field>
+        <field name="model">pos.order</field>
+        <field name="inherit_id" ref="point_of_sale.view_pos_order_tree"/>
+        <field name="arch" type="xml">
+            <field name="name" position="after">
+                <field name="x_id_pos" optional="show" string="ID Ticket POS"/>
+                <field name="x_no_mov" optional="hide" string="Folio POS"/>
+            </field>
+        </field>
+    </record>
+
+    <!-- Acción de Ventas POS Sincronizadas -->
+    <record id="action_plows_pos_order" model="ir.actions.act_window">
+        <field name="name">Tickets de Venta POS</field>
+        <field name="res_model">pos.order</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('x_id_pos', '!=', False)]</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Sin tickets de venta registrados desde Plows POS.
+            </p>
+            <p>
+                Los tickets sincronizados aparecerán aquí y podrán ser facturados nativamente en Odoo.
+            </p>
+        </field>
+    </record>
+</odoo>
