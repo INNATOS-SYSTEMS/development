@@ -23,4 +23,20 @@
             </xpath>
         </field>
     </record>
+
+    <record id="mrp_production_form_view_split_btn" model="ir.ui.view">
+        <field name="name">mrp.production.form.split.btn</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <field name="suggest_lot_split" invisible="1"/>
+                <button name="action_suggest_lot_split" 
+                        type="object" 
+                        string="Dividir Manufactura" 
+                        class="btn-primary" 
+                        invisible="not suggest_lot_split"/>
+            </xpath>
+        </field>
+    </record>
 </odoo>

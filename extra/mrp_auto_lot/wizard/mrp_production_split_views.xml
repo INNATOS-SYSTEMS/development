@@ -11,6 +11,11 @@
                     <field name="warning_message" widget="html" readonly="1" class="mb-0"/>
                 </div>
             </xpath>
+
+            <!-- CAMBIO: Añadimos la columna lot_id al listado de particiones detalladas, visible únicamente cuando el wizard es detonado por nuestro aviso de trazabilidad -->
+            <xpath expr="//field[@name='production_detailed_vals_ids']/list/field[@name='quantity']" position="before">
+                <field name="lot_id" column_invisible="parent.warning_message == False" optional="show"/>
+            </xpath>
         </field>
     </record>
 </odoo>
