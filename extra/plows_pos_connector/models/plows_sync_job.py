@@ -21,8 +21,11 @@ class PlowsPosSyncJob(models.Model):
 
     name = fields.Char(string='Folio del Job', required=True, copy=False, default='Nuevo')
 
-    start_date = fields.Datetime(string='Fecha Inicio', default=fields.Datetime.now)
-    end_date = fields.Datetime(string='Fecha Fin')
+    start_date = fields.Datetime(string='Fecha Inicio Sincronización', default=fields.Datetime.now)
+    end_date = fields.Datetime(string='Fecha Fin Sincronización')
+    execution_start_date = fields.Datetime(string='Inicio de Ejecución')
+    execution_end_date = fields.Datetime(string='Fin de Ejecución')
+    closures_synced = fields.Boolean(string='Cierres Sincronizados', default=False)
 
     records_processed = fields.Integer(string='Registros Procesados', default=0)
     records_failed = fields.Integer(string='Registros Fallidos', default=0)
@@ -126,7 +129,7 @@ class PlowsPosSyncJob(models.Model):
             if not job.task_ids:
                 default_catalogs = [
                     'products', 'customers', 'suppliers',
-                    'locations', 'employees', 'taxes', 'payment_methods',
+                    'locations', 'employees', 'taxes', 'payment_methods', 'closures',
                 ]
                 self.env['plows.pos.sync.task'].sudo().create([
                     {
@@ -138,7 +141,7 @@ class PlowsPosSyncJob(models.Model):
                 ])
             job.write({
                 'state': 'running',
-                'start_date': fields.Datetime.now() if not job.start_date else job.start_date
+                'execution_start_date': fields.Datetime.now() if not job.execution_start_date else job.execution_start_date
             })
             self.env.cr.commit()
 
@@ -285,10 +288,15 @@ class PlowsPosSyncJob(models.Model):
 
     def _sync_catalog_page(self, catalog_name, page=1, limit=100):
         """ Ejecuta la sincronización de una sola página para un catálogo dado """
+        if catalog_name == 'closures':
+            processed, failed, logs = self._sync_incomes()
+            total_count = processed + failed
+            return processed, total_count, False
+
         endpoint_map = {
             'products': 'catalogs/products',
             'customers': 'catalogs/customers',
-            'suppliers': 'catalogs/suppliers',
+            'suppliers': 'catalogs/warehouses',
             'locations': 'catalogs/warehouses',
             'employees': 'catalogs/employees',
             'taxes': 'catalogs/taxes',
@@ -528,7 +536,7 @@ class PlowsPosSyncJob(models.Model):
             if job.state == 'queued':
                 job.write({
                     'state': 'running',
-                    'start_date': fields.Datetime.now() if not job.start_date else job.start_date
+                    'execution_start_date': fields.Datetime.now() if not job.execution_start_date else job.execution_start_date
                 })
                 self.env.cr.commit()
 
@@ -545,11 +553,20 @@ class PlowsPosSyncJob(models.Model):
 
                 active_tasks = job.task_ids.filtered(lambda t: t.state in ['queued', 'in_progress', 'retrying'])
                 if not active_tasks:
+                    if not job.closures_synced:
+                        _logger.info(f"[PlowsSyncEngine] Catálogos completados. Iniciando sincronización de cierres, sesiones simuladas y tickets (Fase 2) para Job {job.id}...")
+                        try:
+                            job._sync_closures_phase()
+                            job._sync_movements_tickets_phase()
+                            job.write({'closures_synced': True})
+                        except Exception as closure_err:
+                            _logger.error(f"[PlowsSyncEngine] Error durante la sincronización de cierres en Job {job.id}: {closure_err}")
+
                     if any(t.state == 'failed' for t in job.task_ids):
                         new_job_state = 'partial_failed' if any(t.state == 'completed' for t in job.task_ids) else 'failed'
                     else:
                         new_job_state = 'done'
-                    job.write({'state': new_job_state, 'end_date': fields.Datetime.now()})
+                    job.write({'state': new_job_state, 'execution_end_date': fields.Datetime.now()})
                     self.env.cr.commit()
                     job._notify_bus_update(job)
                     break
@@ -760,7 +777,24 @@ class PlowsPosSyncJob(models.Model):
             if res_json.get('code') != 200:
                 raise UserError(f"API retornó código de fallo {res_json.get('code')}: {res_json.get('message')}")
             
-            return res_json.get('payload', {}).get('data', [])
+            payload = res_json.get('payload')
+            if isinstance(payload, list):
+                return payload
+            elif isinstance(payload, dict):
+                data = payload.get('data') or payload.get('items') or payload.get('records') or payload.get('tickets') or payload.get('sessions')
+                if isinstance(data, list):
+                    return data
+                elif isinstance(data, dict):
+                    return [data]
+                return payload
+
+            data = res_json.get('data') or res_json.get('items')
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict):
+                return [data]
+
+            return []
         except requests.exceptions.RequestException as e:
             raise UserError(f"Fallo de comunicación con la API de Plows POS en '{url}': {str(e)}")
 
@@ -815,7 +849,7 @@ class PlowsPosSyncJob(models.Model):
         self.ensure_one()
         self.write({
             'state': 'running',
-            'start_date': fields.Datetime.now(),
+            'execution_start_date': fields.Datetime.now(),
             'records_processed': 0,
             'records_failed': 0,
         })
@@ -853,7 +887,7 @@ class PlowsPosSyncJob(models.Model):
             state = 'done' if total_failed == 0 else 'failed'
             self.write({
                 'state': state,
-                'end_date': fields.Datetime.now(),
+                'execution_end_date': fields.Datetime.now(),
                 'records_processed': total_processed,
                 'records_failed': total_failed,
             })
@@ -868,7 +902,7 @@ class PlowsPosSyncJob(models.Model):
                       f'ABORTO CRÍTICO: {str(abort_err)}. Fases posteriores canceladas.')
             self.write({
                 'state': 'failed',
-                'end_date': fields.Datetime.now(),
+                'execution_end_date': fields.Datetime.now(),
                 'records_processed': total_processed,
                 'records_failed': total_failed + 1,
             })
@@ -881,7 +915,7 @@ class PlowsPosSyncJob(models.Model):
                       f'Error general inesperado: {str(e)}')
             self.write({
                 'state': 'failed',
-                'end_date': fields.Datetime.now(),
+                'execution_end_date': fields.Datetime.now(),
                 'records_processed': total_processed,
                 'records_failed': total_failed + 1,
             })
@@ -1770,44 +1804,113 @@ class PlowsPosSyncJob(models.Model):
         return processed, failed
 
 
-    def _create_pos_session_for_closure(self, location=None, pos_control_id=None, closure=None):
-        """ Helper para crear una nueva pos.session dedicada a un corte de caja en su PdV correspondiente """
+    def _get_or_create_warehouse_pos_config(self, location=None):
+        """ Obtiene o crea un pos.config asociado exclusivamente al Almacén (modo sin control de caja) """
         pos_config = False
-        if pos_control_id:
-            pos_config = self.env['pos.config'].search([('x_id_pos', '=', str(pos_control_id))], limit=1)
-        
-        if not pos_config and location and location.x_id_pos:
-            pos_config = self.env['pos.config'].search([('x_id_pos', '=', str(location.x_id_pos))], limit=1)
-            
+        if location and location.x_id_pos:
+            x_id_pos = f"POS-CONFIG-WH-{location.x_id_pos}"
+            pos_config = self.env['pos.config'].search([('x_id_pos', '=', x_id_pos)], limit=1)
+
         if not pos_config and location and location.name:
             pos_config = self.env['pos.config'].search([('name', '=', location.name)], limit=1)
-            
-        if not pos_config:
-            pos_config = self.env['pos.config'].search([], limit=1)
-            
+
         if not pos_config:
             picking_type = self.env['stock.picking.type'].search([('code', '=', 'outgoing')], limit=1)
+            config_name = location.name if (location and location.name) else 'Plows POS Sync'
+            config_x_id_pos = f"POS-CONFIG-WH-{location.x_id_pos or location.id}" if location else 'POS-CONFIG-WH-DEFAULT'
             pos_config = self.env['pos.config'].create({
-                'name': 'Plows POS Sync',
+                'name': config_name,
+                'x_id_pos': config_x_id_pos,
                 'picking_type_id': picking_type.id if picking_type else False,
             })
+        return pos_config
 
-        # Si existen sesiones abiertas en este config, cerrar para poder abrir la nueva del corte
-        open_sessions = self.env['pos.session'].search([('config_id', '=', pos_config.id), ('state', '!=', 'closed')])
-        for os in open_sessions:
-            try:
-                os.write({'state': 'closed', 'stop_at': fields.Datetime.now()})
-            except Exception:
-                pass
+    def _get_or_create_register_pos_config(self, location=None, pos_control_id=None, register_name=None):
+        """ Obtiene o crea un pos.config asociado a Almacén + Caja (modo con control de caja) """
+        pos_config = False
+        if pos_control_id:
+            x_id_pos = f"POS-CONFIG-WH-{location.x_id_pos if location else '0'}-CTRL-{pos_control_id}"
+            pos_config = self.env['pos.config'].search(['|', ('x_id_pos', '=', x_id_pos), ('x_id_pos', '=', str(pos_control_id))], limit=1)
 
+        if not pos_config and location and location.x_id_pos:
+            pos_config = self.env['pos.config'].search([('x_id_pos', '=', str(location.x_id_pos))], limit=1)
 
-        session_name = f"{pos_config.name}/Corte-{closure.name if closure else 'Sync'}"
-        session = self.env['pos.session'].create({
-            'name': session_name,
-            'config_id': pos_config.id,
-            'user_id': self.env.user.id,
-            'state': 'opened',
-        })
+        if not pos_config and location and location.name:
+            pos_config = self.env['pos.config'].search([('name', '=', location.name)], limit=1)
+
+        if not pos_config:
+            picking_type = self.env['stock.picking.type'].search([('code', '=', 'outgoing')], limit=1)
+            config_name = f"{location.name} - {register_name or f'Caja {pos_control_id}'}" if location else f"Caja {pos_control_id}"
+            config_x_id_pos = f"POS-CONFIG-WH-{location.x_id_pos if location else '0'}-CTRL-{pos_control_id}" if pos_control_id else 'POS-CONFIG-DEFAULT'
+            pos_config = self.env['pos.config'].create({
+                'name': config_name,
+                'x_id_pos': config_x_id_pos,
+                'picking_type_id': picking_type.id if picking_type else False,
+            })
+        return pos_config
+
+    def _create_simulated_pos_session(self, pos_config, closure):
+        """ Crea o actualiza una pos.session simulada para cierres sin control de caja """
+        session_x_id_pos = f"POS-SESSION-CLOSURE-{closure.x_id_pos or closure.id}"
+        session = self.env['pos.session'].search([('x_id_pos', '=', session_x_id_pos)], limit=1)
+
+        total_sales = closure.total_sales or 0.0
+
+        if not session:
+            # Si existen sesiones abiertas en este config, cerrar antes de abrir la simulada
+            open_sessions = self.env['pos.session'].search([('config_id', '=', pos_config.id), ('state', '!=', 'closed')])
+            for os in open_sessions:
+                try:
+                    os.write({'state': 'closed', 'stop_at': fields.Datetime.now()})
+                except Exception:
+                    pass
+
+            session_name = f"{pos_config.name}/Corte-{closure.name or closure.x_id_pos}"
+            session = self.env['pos.session'].create({
+                'name': session_name,
+                'x_id_pos': session_x_id_pos,
+                'config_id': pos_config.id,
+                'user_id': self.env.user.id,
+                'state': 'opened',
+                'cash_register_balance_start': 0.0,
+                'cash_register_balance_end_real': total_sales,
+            })
+        else:
+            session.write({
+                'cash_register_balance_start': 0.0,
+                'cash_register_balance_end_real': total_sales,
+            })
+
+        return session
+
+    def _create_pos_session_for_closure(self, location=None, pos_control_id=None, closure=None):
+        """ Helper para crear una nueva pos.session dedicada a un corte de caja en su PdV correspondiente """
+        pos_config = self._get_or_create_register_pos_config(location, pos_control_id)
+
+        session_x_id_pos = f"POS-SESSION-CLOSURE-{closure.x_id_pos or closure.id}" if closure else False
+        session = False
+        if session_x_id_pos:
+            session = self.env['pos.session'].search([('x_id_pos', '=', session_x_id_pos)], limit=1)
+
+        if not session:
+            open_sessions = self.env['pos.session'].search([('config_id', '=', pos_config.id), ('state', '!=', 'closed')])
+            for os in open_sessions:
+                try:
+                    os.write({'state': 'closed', 'stop_at': fields.Datetime.now()})
+                except Exception:
+                    pass
+
+            session_name = f"{pos_config.name}/Corte-{closure.name if closure else 'Sync'}"
+            session_vals = {
+                'name': session_name,
+                'config_id': pos_config.id,
+                'user_id': self.env.user.id,
+                'state': 'opened',
+            }
+            if session_x_id_pos:
+                session_vals['x_id_pos'] = session_x_id_pos
+            session = self.env['pos.session'].create(session_vals)
+
         return session
 
     def _sync_incomes(self):
@@ -1819,9 +1922,18 @@ class PlowsPosSyncJob(models.Model):
         log_lines.append("<h5>Obteniendo Cortes de Caja...</h5>")
         params = {}
         if self.start_date:
-            params['start_date'] = self.start_date.strftime('%Y-%m-%d')
+            s_date = self.start_date.strftime('%Y-%m-%d')
+            params['start_date'] = s_date
+            params['startDate'] = s_date
         if self.end_date:
-            params['end_date'] = self.end_date.strftime('%Y-%m-%d')
+            e_date = self.end_date.strftime('%Y-%m-%d')
+            params['end_date'] = e_date
+            params['endDate'] = e_date
+        elif self.start_date:
+            s_date = self.start_date.strftime('%Y-%m-%d')
+            params['end_date'] = s_date
+            params['endDate'] = s_date
+
             
         try:
             for page, closures in self._call_api_paginated('processes/closures', limit=100, extra_params=params):
@@ -1874,8 +1986,17 @@ class PlowsPosSyncJob(models.Model):
                         closure.write(vals)
                         log_lines.append(f"<p><b>Cierre Actualizado:</b> Folio {closure.name}</p>")
                     
-                    # Obtenemos o creamos la sesión de POS dedicada a este cierre
-                    pos_session = self._create_pos_session_for_closure(loc, pos_control_id, closure)
+                    # Determinar si el cierre tiene control de caja (pos_control_id)
+                    if not pos_control_id:
+                        # Modo Sin Control de Caja -> Sesión Simulada por Almacén
+                        pos_config = self._get_or_create_warehouse_pos_config(loc)
+                        pos_session = self._create_simulated_pos_session(pos_config, closure)
+                        log_lines.append(f"<p><b>Sesión Simulada:</b> POS Config '{pos_config.name}' (Apertura $0.00 / Cierre ${closure.total_sales:.2f})</p>")
+                    else:
+                        # Modo Con Control de Caja -> Sesión Real por Caja
+                        pos_config = self._get_or_create_register_pos_config(loc, pos_control_id)
+                        pos_session = self._create_pos_session_for_closure(loc, pos_control_id, closure)
+                        log_lines.append(f"<p><b>Sesión Real:</b> POS Config '{pos_config.name}' (Caja ID {pos_control_id})</p>")
 
                     # Sincronizar Tickets de este cierre
                     try:
@@ -1890,7 +2011,11 @@ class PlowsPosSyncJob(models.Model):
                                     
                                 pos_order = self.env['pos.order'].search([('x_id_pos', '=', str(tkt_id_pos))], limit=1)
                                 if pos_order:
-                                    log_lines.append(f"<li>Ticket {pos_order.name} (ID POS: {tkt_id_pos}) ya importado. Omitiendo.</li>")
+                                    pos_order.write({
+                                        'session_id': pos_session.id,
+                                        'x_closure_id': closure.id,
+                                    })
+                                    log_lines.append(f"<li>Ticket {pos_order.name} (ID POS: {tkt_id_pos}) ya importado. Actualizada sesión/cierre.</li>")
                                     continue
                                     
                                 # Determinar cliente

@@ -26,6 +26,7 @@ class PlowsPosSyncTask(models.Model):
         ('categories', 'Categorías'),
         ('taxes', 'Impuestos'),
         ('payment_methods', 'Métodos de pago'),
+        ('closures', 'Cierres de Caja y Ventas'),
     ], string='Catálogo', required=True)
 
     state = fields.Selection([
@@ -76,23 +77,45 @@ class PlowsPosSyncTask(models.Model):
         for task in self:
             if task.total_records > 0:
                 continue
-            endpoint_map = {
-                'products': 'catalogs/products',
-                'customers': 'catalogs/customers',
-                'suppliers': 'catalogs/suppliers',
-                'locations': 'catalogs/locations',
-                'employees': 'catalogs/employees',
-                'taxes': 'catalogs/taxes',
-                'payment_methods': 'catalogs/payment-methods',
-            }
-            endpoint = endpoint_map.get(task.catalog_name)
-            if endpoint:
+            if task.catalog_name == 'closures':
+                params = {}
+                if task.job_id.start_date:
+                    s_date = task.job_id.start_date.strftime('%Y-%m-%d')
+                    params['start_date'] = s_date
+                    params['startDate'] = s_date
+                if task.job_id.end_date:
+                    e_date = task.job_id.end_date.strftime('%Y-%m-%d')
+                    params['end_date'] = e_date
+                    params['endDate'] = e_date
+                elif task.job_id.start_date:
+                    s_date = task.job_id.start_date.strftime('%Y-%m-%d')
+                    params['end_date'] = s_date
+                    params['endDate'] = s_date
+
                 try:
-                    _, total_count, _ = task.job_id._fetch_api_page(endpoint, page=1, limit=1)
+                    _, total_count, _ = task.job_id._fetch_api_page('processes/closures', page=1, limit=1, extra_params=params)
                     if total_count > 0:
                         task.write({'total_records': total_count})
                 except Exception as e:
-                    _logger.warning(f"No se pudo consultar metadatos iniciales para {task.catalog_name}: {e}")
+                    _logger.warning(f"No se pudo consultar metadatos iniciales para cierres: {e}")
+            else:
+                endpoint_map = {
+                    'products': 'catalogs/products',
+                    'customers': 'catalogs/customers',
+                    'suppliers': 'catalogs/suppliers',
+                    'locations': 'catalogs/locations',
+                    'employees': 'catalogs/employees',
+                    'taxes': 'catalogs/taxes',
+                    'payment_methods': 'catalogs/payment-methods',
+                }
+                endpoint = endpoint_map.get(task.catalog_name)
+                if endpoint:
+                    try:
+                        _, total_count, _ = task.job_id._fetch_api_page(endpoint, page=1, limit=1)
+                        if total_count > 0:
+                            task.write({'total_records': total_count})
+                    except Exception as e:
+                        _logger.warning(f"No se pudo consultar metadatos iniciales para {task.catalog_name}: {e}")
 
     def _process_page_checkpoint(self, page_num, records_count, status='success', summary=None):
         """ Registra checkpoint por página y avanza puntero de paginación (SC-004). """

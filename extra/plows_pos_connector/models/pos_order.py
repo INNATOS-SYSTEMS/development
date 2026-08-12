@@ -17,3 +17,10 @@ class PosConfigInherit(models.Model):
     _inherit = 'pos.config'
 
     x_id_pos = fields.Char(string='ID Plows POS (Control/Almacén)', index=True, copy=False)
+
+
+class PosSessionInherit(models.Model):
+    _inherit = 'pos.session'
+
+    x_id_pos = fields.Char(string='ID Sesión Plows POS', index=True, copy=False)
+

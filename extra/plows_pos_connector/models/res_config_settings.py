@@ -215,7 +215,7 @@ class ResConfigSettings(models.TransientModel):
         return self.env['plows.pos.field.mapping'].action_load_default_mappings()
 
     def action_reset_test_data(self):
-        """ Método de prueba ultra-rápido con SQL directo para reiniciar catálogos, transacciones, secuencias e históricos (FR-026, FR-027, FR-028, FR-029). """
+        """ Método de prueba ultra-rápido con SQL directo para reiniciar catálogos, transacciones, POS, secuencias e históricos. """
         import logging
         _logger = logging.getLogger(__name__)
         _logger.info("[PlowsSyncEngine] Iniciando reinicio ultra-rápido SQL de datos de prueba...")
@@ -223,36 +223,49 @@ class ResConfigSettings(models.TransientModel):
         try:
             cr = self.env.cr
             with cr.savepoint():
-                # 1. Logs y checkpoints
+                # 1. Logs, checkpoints y staging
                 cr.execute("DELETE FROM plows_pos_sync_log")
                 cr.execute("DELETE FROM plows_pos_sync_checkpoint")
 
-                # 2. Movimientos y cierres de caja, egresos e inventarios
+                # 2. Entidades de Punto de Venta (pagos, líneas, órdenes, sesiones y configuraciones POS)
+                cr.execute("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pos_payment')")
+                if cr.fetchone()[0]:
+                    cr.execute("DELETE FROM pos_payment")
+
+                cr.execute("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pos_order_line')")
+                if cr.fetchone()[0]:
+                    cr.execute("DELETE FROM pos_order_line")
+
+                cr.execute("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pos_order')")
+                if cr.fetchone()[0]:
+                    cr.execute("DELETE FROM pos_order")
+
+                cr.execute("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pos_session')")
+                if cr.fetchone()[0]:
+                    cr.execute("UPDATE pos_session SET state = 'closed' WHERE state != 'closed'")
+                    cr.execute("DELETE FROM pos_session")
+
+                cr.execute("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pos_config')")
+                if cr.fetchone()[0]:
+                    cr.execute("DELETE FROM pos_config WHERE x_id_pos IS NOT NULL OR name ILIKE '%Plows%'")
+
+                # 3. Movimientos y cierres de caja, egresos e inventarios
                 cr.execute("DELETE FROM plows_pos_closure_movement")
                 cr.execute("DELETE FROM plows_pos_closure")
                 cr.execute("DELETE FROM plows_pos_expense")
                 cr.execute("DELETE FROM plows_pos_inventory")
 
-                # 3. Purga integral absoluta de productos y plantillas (product.product y product.template)
-                cr.execute("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'delivery_carrier')")
-                if cr.fetchone()[0]:
-                    cr.execute("DELETE FROM delivery_carrier")
-
-                cr.execute("DELETE FROM product_product")
-                cr.execute("DELETE FROM product_template")
-
-                # 4. Purga integral de atributos y categorías de producto
-                cr.execute("DELETE FROM product_attribute_value")
-                cr.execute("DELETE FROM product_attribute")
-                cr.execute("DELETE FROM product_category WHERE parent_id IS NOT NULL")
+                # 4. Desvincular metadatos de Productos en lugar de DELETE truncado (previene error de FK stock_move_product_id_fkey)
+                cr.execute("UPDATE product_product SET x_id_pos = NULL, x_sync_status = NULL, x_last_sync_date = NULL WHERE x_id_pos IS NOT NULL")
+                cr.execute("UPDATE product_template SET x_id_pos = NULL WHERE x_id_pos IS NOT NULL")
 
                 # 5. Entidades maestras sincronizadas (res.partner, stock.location, hr.employee)
-                cr.execute("DELETE FROM res_partner WHERE x_id_pos IS NOT NULL")
-                cr.execute("DELETE FROM stock_location WHERE x_id_pos IS NOT NULL")
-                cr.execute("DELETE FROM hr_employee WHERE x_id_pos IS NOT NULL")
+                cr.execute("UPDATE res_partner SET x_id_pos = NULL WHERE x_id_pos IS NOT NULL")
+                cr.execute("UPDATE stock_location SET x_id_pos = NULL, x_warehouse_code = NULL WHERE x_id_pos IS NOT NULL")
+                cr.execute("UPDATE hr_employee SET x_id_pos = NULL WHERE x_id_pos IS NOT NULL")
 
                 # 6. Restablecimiento de Secuencias Odoo (ir.sequence -> number_next = 1)
-                cr.execute("UPDATE ir_sequence SET number_next = 1 WHERE code IN ('plows.pos.closure', 'plows.pos.expense', 'plows.pos.inventory')")
+                cr.execute("UPDATE ir_sequence SET number_next = 1 WHERE code IN ('plows.pos.closure', 'plows.pos.expense', 'plows.pos.inventory', 'plows.pos.sync.job')")
 
                 # 7. Reset Tareas y Jobs a estado inicial en cola
                 cr.execute("UPDATE plows_pos_sync_job SET state = 'draft', start_date = NULL, end_date = NULL")
@@ -263,10 +276,11 @@ class ResConfigSettings(models.TransientModel):
                 'tag': 'display_notification',
                 'params': {
                     'title': 'Reinicio de Pruebas Exitoso',
-                    'message': 'Todos los catálogos de prueba, secuencias y tareas han sido reiniciados instantáneamente.',
+                    'message': 'Todos los datos de POS, configuraciones, sesiones, órdenes y secuencias han sido limpiados e instantáneamente reiniciados.',
                     'type': 'success',
                     'sticky': False,
                 }
             }
         except Exception as e:
             raise UserError(f"Fallo durante el reinicio de datos de prueba: {str(e)}")
+

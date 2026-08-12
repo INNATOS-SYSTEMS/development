@@ -75,12 +75,15 @@
                         </h1>
                     </div>
                     <group>
-                        <group string="Detalles del Proceso">
-                            <field name="start_date" readonly="1"/>
-                            <field name="end_date" readonly="1"/>
+                        <group string="Rango de Fechas a Sincronizar">
+                            <field name="start_date" readonly="state != 'draft'"/>
+                            <field name="end_date" readonly="state != 'draft'"/>
                             <field name="global_progress" widget="progressbar"/>
                         </group>
-                        <group string="Resultados">
+
+                        <group string="Tiempos de Ejecución del Job">
+                            <field name="execution_start_date" readonly="1"/>
+                            <field name="execution_end_date" readonly="1"/>
                             <field name="total_records"/>
                             <field name="processed_records"/>
                             <field name="records_failed" decoration-danger="records_failed &gt; 0"/>

@@ -32,6 +32,7 @@ class PlowsPosStagingRaw(models.Model):
         ('categories', 'Categorías'),
         ('taxes', 'Impuestos'),
         ('payment_methods', 'Métodos de pago'),
+        ('closures', 'Cierres de Caja y Ventas'),
     ], string='Catálogo', required=True, index=True)
 
     pos_record_id = fields.Char(string='ID Registro POS', index=True)
