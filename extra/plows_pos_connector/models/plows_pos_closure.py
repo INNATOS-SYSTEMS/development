@@ -4,19 +4,20 @@ from datetime import datetime
 
 class PlowsPosClosure(models.Model):
     _name = 'plows.pos.closure'
+    _inherit = ['mail.thread', 'mail.activity.mixin']
     _description = 'Corte de Caja Plows POS'
     _order = 'closing_date desc, closing_time desc, id desc'
 
-    name = fields.Char(string='Folio del Cierre', required=True, copy=False, default='Nuevo')
+    name = fields.Char(string='Folio del Cierre', required=True, copy=False, default='Nuevo', tracking=True)
     x_id_pos = fields.Char(string='ID Cierre Plows POS', index=True, required=True, copy=False)
     session_number = fields.Char(string='Número de Sesión')
     location_id = fields.Many2one('stock.location', string='Almacén / Ubicación stock', domain=[('x_id_pos', '!=', False)])
     closing_date = fields.Date(string='Fecha de Cierre')
     closing_time = fields.Char(string='Hora de Cierre')
     
-    total_sales = fields.Float(string='Ventas Totales')
+    total_sales = fields.Float(string='Ventas Totales', tracking=True)
     total_refunds = fields.Float(string='Devoluciones Totales')
-    total_shortage = fields.Float(string='Faltante/Sobrante')
+    total_shortage = fields.Float(string='Faltante/Sobrante', tracking=True)
     shortage_notes = fields.Text(string='Notas del Faltante')
     
     responsible_id = fields.Many2one('hr.employee', string='Responsable')
@@ -33,7 +34,7 @@ class PlowsPosClosure(models.Model):
         ('draft', 'Planificado'),
         ('synced', 'Sincronizado'),
         ('failed', 'Fallo')
-    ], string='Estado', default='draft', required=True)
+    ], string='Estado', default='draft', required=True, tracking=True)
 
     ticket_ids = fields.One2many('pos.order', 'x_closure_id', string='Tickets de Venta')
     movement_ids = fields.One2many('plows.pos.closure.movement', 'closure_id', string='Movimientos de Caja Chica')

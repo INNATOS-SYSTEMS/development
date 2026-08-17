@@ -28,6 +28,66 @@ class ResConfigSettings(models.TransientModel):
         config_parameter='plows_pos_connector.sync_batch_size',
         default=100
     )
+
+    plows_webhook_url = fields.Char(
+        string='URL Pública de Webhook en Odoo',
+        config_parameter='plows_pos_connector.webhook_url',
+        default='http://host.docker.internal:8069/plows/webhook/receiver'
+    )
+
+    plows_webhook_secret = fields.Char(
+        string='Clave Secreta HMAC-SHA256',
+        config_parameter='plows_pos_connector.webhook_secret',
+        default='secreto_compartido_hmac_super_seguro_12345'
+    )
+
+    plows_webhook_event_products = fields.Boolean(
+        string='Productos',
+        config_parameter='plows_pos_connector.webhook_event_products',
+        default=True
+    )
+    plows_webhook_event_customers = fields.Boolean(
+        string='Clientes',
+        config_parameter='plows_pos_connector.webhook_event_customers',
+        default=True
+    )
+    plows_webhook_event_suppliers = fields.Boolean(
+        string='Proveedores',
+        config_parameter='plows_pos_connector.webhook_event_suppliers',
+        default=True
+    )
+    plows_webhook_event_warehouses = fields.Boolean(
+        string='Almacenes / Sucursales',
+        config_parameter='plows_pos_connector.webhook_event_warehouses',
+        default=True
+    )
+    plows_webhook_event_employees = fields.Boolean(
+        string='Personal / Empleados',
+        config_parameter='plows_pos_connector.webhook_event_employees',
+        default=True
+    )
+    plows_webhook_event_taxes = fields.Boolean(
+        string='Impuestos',
+        config_parameter='plows_pos_connector.webhook_event_taxes',
+        default=True
+    )
+    plows_webhook_event_payments = fields.Boolean(
+        string='Métodos de Pago',
+        config_parameter='plows_pos_connector.webhook_event_payments',
+        default=True
+    )
+    plows_webhook_event_closures = fields.Boolean(
+        string='Cierres de Caja',
+        config_parameter='plows_pos_connector.webhook_event_closures',
+        default=True
+    )
+    plows_webhook_event_tickets = fields.Boolean(
+        string='Ventas / Tickets',
+        config_parameter='plows_pos_connector.webhook_event_tickets',
+        default=True
+    )
+
+
     
     plows_pos_token_status = fields.Selection([
         ('not_generated', 'No Generado'),
@@ -213,6 +273,151 @@ class ResConfigSettings(models.TransientModel):
 
     def action_load_default_field_mappings(self):
         return self.env['plows.pos.field.mapping'].action_load_default_mappings()
+
+    def action_open_field_mapping(self):
+        """ Acceso directo a la vista de Mapeo de Propiedades desde Ajustes generales """
+        return self.env['ir.actions.act_window']._for_xml_id('plows_pos_connector.action_plows_pos_field_mapping')
+
+    def action_open_event_subscription_wizard(self):
+        """ Abre el asistente modal para seleccionar el catálogo de eventos a suscribir """
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Suscripción de Eventos',
+            'res_model': 'plows.pos.event.subscription.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+        }
+
+
+    def action_register_webhook_config(self):
+        """ Registra o actualiza la suscripción de Webhook en la API de Plows POS (POST /api/v1/webhooks/config) """
+        self.ensure_one()
+        url_base = self.plows_pos_api_url
+        token = self.plows_pos_api_token or self.env['ir.config_parameter'].sudo().get_param('plows_pos_connector.api_token')
+        webhook_url = self.plows_webhook_url
+        webhook_secret = self.plows_webhook_secret
+
+        if not url_base:
+            raise UserError("Debes configurar la URL Base de la API.")
+        if not webhook_url or not webhook_secret:
+            raise UserError("La URL de Webhook y el Secreto HMAC-SHA256 deben estar configurados.")
+
+        if not token:
+            self.action_generate_token()
+            token = self.plows_pos_api_token or self.env['ir.config_parameter'].sudo().get_param('plows_pos_connector.api_token')
+
+        if url_base.endswith('/'):
+            url_base = url_base[:-1]
+
+        url = f"{url_base}/webhooks/config"
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+        subscribed_events = []
+        if self.plows_webhook_event_products:
+            subscribed_events.append('product')
+        if self.plows_webhook_event_customers:
+            subscribed_events.append('customer')
+        if self.plows_webhook_event_suppliers:
+            subscribed_events.append('supplier')
+        if self.plows_webhook_event_warehouses:
+            subscribed_events.append('warehouse')
+        if self.plows_webhook_event_employees:
+            subscribed_events.append('employee')
+        if self.plows_webhook_event_taxes:
+            subscribed_events.append('tax')
+        if self.plows_webhook_event_payments:
+            subscribed_events.append('payment_method')
+        if self.plows_webhook_event_closures:
+            subscribed_events.append('closure')
+        if self.plows_webhook_event_tickets:
+            subscribed_events.append('ticket')
+
+        body = {
+            'url': webhook_url,
+            'secret': webhook_secret,
+            'subscribed_events': subscribed_events or ['product', 'customer', 'supplier', 'warehouse', 'employee', 'tax', 'payment_method', 'closure', 'ticket']
+        }
+
+
+        try:
+            response = requests.post(url, json=body, headers=headers, timeout=10)
+            
+            # Auto-recuperación de token si da HTTP 401
+            if response.status_code == 401:
+                self.action_generate_token()
+                new_token = self.plows_pos_api_token or self.env['ir.config_parameter'].sudo().get_param('plows_pos_connector.api_token')
+                if new_token:
+                    headers['Authorization'] = f'Bearer {new_token}'
+                    response = requests.post(url, json=body, headers=headers, timeout=10)
+
+            if response.status_code == 200:
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': 'Suscripción Exitosa',
+                        'message': 'La configuración de Webhook fue registrada correctamente en la API de Plows POS.',
+                        'type': 'success',
+                        'sticky': False,
+                    }
+                }
+            else:
+                raise UserError(f"Error al registrar Webhook en API (HTTP {response.status_code}): {response.text}")
+        except Exception as e:
+            raise UserError(f"Fallo de comunicación al registrar Webhook: {str(e)}")
+
+    def action_test_webhook_ping(self):
+        """ Solicita a la API un envío de prueba 'ping' (POST /api/v1/webhooks/test) """
+        self.ensure_one()
+        url_base = self.plows_pos_api_url
+        token = self.plows_pos_api_token or self.env['ir.config_parameter'].sudo().get_param('plows_pos_connector.api_token')
+
+        if not url_base:
+            raise UserError("Debes configurar la URL Base de la API.")
+
+        if not token:
+            self.action_generate_token()
+            token = self.plows_pos_api_token or self.env['ir.config_parameter'].sudo().get_param('plows_pos_connector.api_token')
+
+        if url_base.endswith('/'):
+            url_base = url_base[:-1]
+
+        url = f"{url_base}/webhooks/test"
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+
+        try:
+            response = requests.post(url, headers=headers, timeout=10)
+
+            # Auto-recuperación de token si da HTTP 401
+            if response.status_code == 401:
+                self.action_generate_token()
+                new_token = self.plows_pos_api_token or self.env['ir.config_parameter'].sudo().get_param('plows_pos_connector.api_token')
+                if new_token:
+                    headers['Authorization'] = f'Bearer {new_token}'
+                    response = requests.post(url, headers=headers, timeout=10)
+
+            if response.status_code == 200:
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': 'Prueba de Ping Exitosa',
+                        'message': 'La API de Plows POS despachó un evento de prueba ping y Odoo lo confirmó.',
+                        'type': 'success',
+                        'sticky': False,
+                    }
+                }
+            else:
+                raise UserError(f"Prueba de Ping fallida (HTTP {response.status_code}): {response.text}")
+        except Exception as e:
+            raise UserError(f"Fallo de comunicación al probar Ping: {str(e)}")
+
+
 
     def action_reset_test_data(self):
         """ Método de prueba ultra-rápido con SQL directo para reiniciar catálogos, transacciones, POS, secuencias e históricos. """

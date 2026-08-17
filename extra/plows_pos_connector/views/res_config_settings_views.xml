@@ -8,63 +8,90 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app data-string="Plows POS" string="Plows POS" name="plows_pos_connector">
-                    <block title="Conexión de Plows POS" string="Conexión de Plows POS">
-                        <setting string="Configuración de API" help="Defina los parámetros para conectar con la API de Plows POS.">
+                    <block title="Ajustes de conexión" string="Ajustes de conexión">
+                        <setting string="Parámetros de API Plows POS" help="Defina la URL Base de la API de Plows POS, identificador de empresa y credenciales de acceso.">
                             <div class="content-group">
                                 <div class="row mt16">
-                                    <label for="plows_pos_api_url" class="col-lg-3 o_light_label"/>
-                                    <field name="plows_pos_api_url" class="col-lg-9"/>
+                                    <label for="plows_pos_api_url" class="col-lg-4 o_light_label"/>
+                                    <field name="plows_pos_api_url" class="col-lg-8"/>
                                 </div>
                                 <div class="row mt8">
-                                    <label for="plows_pos_tenant_id" class="col-lg-3 o_light_label"/>
-                                    <field name="plows_pos_tenant_id" class="col-lg-9"/>
+                                    <label for="plows_pos_tenant_id" class="col-lg-4 o_light_label"/>
+                                    <field name="plows_pos_tenant_id" class="col-lg-8"/>
                                 </div>
                                 <div class="row mt8">
-                                    <label for="plows_pos_api_token" class="col-lg-3 o_light_label"/>
-                                    <field name="plows_pos_api_token" password="True" class="col-lg-9"/>
+                                    <label for="plows_pos_api_token" class="col-lg-4 o_light_label"/>
+                                    <field name="plows_pos_api_token" password="True" class="col-lg-8"/>
                                 </div>
                                 <div class="row mt8">
-                                    <label for="plows_pos_token_status" class="col-lg-3 o_light_label"/>
-                                    <field name="plows_pos_token_status" class="col-lg-9"/>
+                                    <label for="plows_pos_token_status" class="col-lg-4 o_light_label"/>
+                                    <field name="plows_pos_token_status" class="col-lg-8"/>
                                 </div>
                                 <div class="row mt8">
-                                    <label for="plows_pos_token_generated_at" class="col-lg-3 o_light_label"/>
-                                    <field name="plows_pos_token_generated_at" class="col-lg-9"/>
+                                    <label for="plows_pos_token_generated_at" class="col-lg-4 o_light_label"/>
+                                    <field name="plows_pos_token_generated_at" class="col-lg-8"/>
                                 </div>
                                 <div class="mt16">
-                                    <button name="action_generate_token" string="Generar Token" type="object" class="btn btn-primary"/>
-                                    <button name="action_test_token_connection" string="Probar Conexión" type="object" class="btn btn-secondary ml8"/>
+                                    <button name="action_generate_token" string="Generar Token" type="object" class="btn btn-primary" icon="fa-key"/>
+                                    <button name="action_test_token_connection" string="Probar Conexión" type="object" class="btn btn-secondary ml8" icon="fa-check"/>
                                 </div>
                             </div>
                         </setting>
-
 
                         <setting string="Cliente por Defecto" help="Cliente utilizado para registrar tickets de venta consolidada sin factura.">
                             <field name="plows_pos_default_customer_id"/>
                         </setting>
                     </block>
 
-                    <block title="Reglas de Sincronización Automática" string="Automatizaciones">
-                        <setting string="Tamaño de Lote" help="Cantidad de registros procesados por página durante la sincronización de catálogos (predeterminado: 100).">
-                            <field name="plows_sync_batch_size"/>
+                    <block title="Suscripción de eventos" string="Suscripción de eventos" invisible="not plows_pos_api_url or not plows_webhook_url">
+                        <setting string="Receptor de Webhooks HMAC" help="Configura la recepción asíncrona de eventos y la clave secreta HMAC-SHA256 para validación de seguridad.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="plows_webhook_url" class="col-lg-4 o_light_label"/>
+                                    <field name="plows_webhook_url" class="col-lg-8"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="plows_webhook_secret" class="col-lg-4 o_light_label"/>
+                                    <field name="plows_webhook_secret" password="True" class="col-lg-8"/>
+                                </div>
+                                <div class="mt16">
+                                    <button name="action_register_webhook_config" string="Conectar" type="object" class="btn btn-primary" icon="fa-plug"/>
+                                    <button name="action_test_webhook_ping" string="Probar conectividad" type="object" class="btn btn-secondary ml8" icon="fa-rss"/>
+                                </div>
+                            </div>
                         </setting>
-                        <setting string="Sincronizar Catálogos" help="Ejecutar cron diario para sincronizar productos, clientes, etc.">
-                            <field name="plows_pos_sync_catalogs_daily"/>
-                        </setting>
-                        <setting string="Sincronizar Transacciones" help="Ejecutar cron por hora para bajar ingresos y egresos.">
-                            <field name="plows_pos_sync_transactions_hourly"/>
-                        </setting>
-                        <setting string="Sincronizar Inventario" help="Ejecutar cron nocturno para aplicar cierres y valoraciones de inventario.">
-                            <field name="plows_pos_sync_inventory_nightly"/>
-                        </setting>
-                        <setting string="Mapeo de Propiedades POS ➔ Odoo" help="Configura la correspondencia entre los atributos JSON de la API y los campos del ORM de Odoo.">
-                            <button name="action_load_default_field_mappings" string="Cargar Mapeos Predeterminados" type="object" class="btn btn-primary" icon="fa-refresh"/>
+
+                        <setting string="Catálogo de Eventos Suscritos" help="Gestiona los tipos de eventos en los que deseas recibir notificaciones en tiempo real desde la API de Plows POS.">
+                            <div class="content-group">
+                                <p class="text-muted">
+                                    Abre el catálogo modal para seleccionar o modificar los tópicos de eventos (Productos, Clientes, Cierres, Tickets) suscritos en tiempo real.
+                                </p>
+                                <div class="mt16">
+                                    <button name="action_open_event_subscription_wizard" string="Suscripción de eventos" type="object" class="btn btn-primary" icon="fa-tags"/>
+                                </div>
+                            </div>
                         </setting>
                     </block>
 
-                    <block title="Herramientas de Pruebas" string="Pruebas y Desarrollo">
+                    <block title="Herramientas de desarrollo" string="Herramientas de desarrollo">
+                        <setting string="Mapeo de Propiedades POS ➔ Odoo" help="Configura la correspondencia entre los atributos JSON de la API y los campos del ORM de Odoo.">
+                            <div class="content-group">
+                                <p class="text-muted">
+                                    Define reglas personalizadas de transformación de datos o restaura la plantilla de mapeo por defecto para productos, clientes y ventas.
+                                </p>
+                                <div class="mt16">
+                                    <button name="action_open_field_mapping" string="Configuración" type="object" class="btn btn-secondary" icon="fa-sliders"/>
+                                    <button name="action_load_default_field_mappings" string="Cargar Predeterminados" type="object" class="btn btn-primary ml8" icon="fa-refresh"/>
+                                </div>
+                            </div>
+                        </setting>
+
                         <setting string="Reiniciar Datos de Prueba" help="Limpia en orden todos los catálogos y transacciones de prueba sincronizados y restablece las secuencias numéricas a 1. ÚNICAMENTE DESTINADO A PRUEBAS.">
-                            <button name="action_reset_test_data" string="Reiniciar Datos de Prueba" type="object" class="btn btn-danger" confirm="¿Estás seguro de reiniciar todos los datos de prueba y secuencias? Esta acción no se puede deshacer." icon="fa-trash"/>
+                            <div class="content-group">
+                                <div class="mt16">
+                                    <button name="action_reset_test_data" string="Reiniciar Datos de Prueba" type="object" class="btn btn-danger" confirm="¿Estás seguro de reiniciar todos los datos de prueba y secuencias? Esta acción no se puede deshacer." icon="fa-trash"/>
+                                </div>
+                            </div>
                         </setting>
                     </block>
                 </app>
@@ -73,7 +100,7 @@
     </record>
 
     <record id="action_plows_pos_config" model="ir.actions.act_window">
-        <field name="name">Ajustes Plows</field>
+        <field name="name">Ajustes generales</field>
         <field name="type">ir.actions.act_window</field>
         <field name="res_model">res.config.settings</field>
         <field name="view_mode">form</field>

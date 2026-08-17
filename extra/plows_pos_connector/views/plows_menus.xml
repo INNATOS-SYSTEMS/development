@@ -64,17 +64,12 @@
               parent="menu_plows_pos_root"
               sequence="40"/>
 
-    <menuitem id="menu_plows_pos_sync_job_action"
-              name="Historial de Sincronización"
+    <menuitem id="menu_plows_pos_webhook_log_action"
+              name="Bitácora de Eventos"
               parent="menu_plows_pos_monitoring"
-              action="action_plows_pos_sync_job"
+              action="action_plows_pos_webhook_log_act"
               sequence="10"/>
 
-    <menuitem id="menu_plows_pos_sync_log_action"
-              name="Logs de Sincronización"
-              parent="menu_plows_pos_monitoring"
-              action="action_plows_pos_sync_log"
-              sequence="20"/>
 
     <!-- Submenú Configuración -->
     <menuitem id="menu_plows_pos_config"
@@ -84,26 +79,32 @@
               sequence="50"/>
 
     <menuitem id="menu_plows_pos_settings_action"
-              name="Ajustes de Conexión"
+              name="Ajustes generales"
               parent="menu_plows_pos_config"
               action="action_plows_pos_config"
               sequence="10"/>
+
+    <menuitem id="menu_plows_pos_sync_job_action"
+              name="Sincronización manual"
+              parent="menu_plows_pos_config"
+              action="action_plows_pos_sync_job"
+              sequence="15"/>
 
     <menuitem id="menu_plows_pos_field_mapping_action"
               name="Mapeo de Propiedades"
               parent="menu_plows_pos_config"
               action="action_plows_pos_field_mapping"
-              sequence="15"/>
+              sequence="20"/>
 
     <menuitem id="menu_plows_pos_tax_rule_action"
               name="Impuestos"
               parent="menu_plows_pos_config"
               action="action_plows_pos_tax_rule"
-              sequence="20"/>
+              sequence="30"/>
 
     <menuitem id="menu_plows_pos_payment_rule_action"
               name="Métodos de Pago"
               parent="menu_plows_pos_config"
               action="action_plows_pos_payment_rule"
-              sequence="30"/>
+              sequence="40"/>
 </odoo>

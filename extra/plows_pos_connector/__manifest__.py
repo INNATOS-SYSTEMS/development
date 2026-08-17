@@ -18,6 +18,7 @@ Se conecta a las APIs expuestas por Plows POS para descargar y sincronizar:
     'license': 'LGPL-3',
     'depends': [
         'base',
+        'mail',
         'product',
         'stock',
         'account',
@@ -51,8 +52,11 @@ Se conecta a las APIs expuestas por Plows POS para descargar y sincronizar:
         'views/plows_pos_expense_views.xml',
         'views/plows_pos_inventory_views.xml',
         'views/plows_dashboard_views.xml',
+        'views/plows_webhook_log_views.xml',
+        'views/plows_event_subscription_wizard_views.xml',
         # Menus — always last
         'views/plows_menus.xml',
+
     ],
 
     'assets': {

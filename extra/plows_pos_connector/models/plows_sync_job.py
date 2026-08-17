@@ -2285,3 +2285,111 @@ class PlowsPosSyncJob(models.Model):
             log_lines.append(f"<p style='color:red;'>Fallo al recuperar cierres para egresos: {str(e)}</p>")
             
         return processed, failed, log_lines
+
+    @api.model
+    def _sync_single_entity(self, entity_type, entity_id, change_type='updated'):
+        """
+        Sincroniza una entidad individual desde Plows POS REST API impulsada por un evento Webhook (Pull On Demand).
+        """
+        _logger.info(f"Sincronización única por Webhook: type={entity_type}, id={entity_id}, action={change_type}")
+
+        job = self.search([('state', 'in', ['draft', 'running', 'queued'])], order='id desc', limit=1)
+        if not job:
+            job = self.create({
+                'name': f"Webhook Job {entity_type} {entity_id}",
+                'state': 'running',
+                'execution_start_date': fields.Datetime.now()
+            })
+
+        if entity_type == 'product':
+            data = None
+            if entity_id:
+                try:
+                    data = job._call_api(f'catalogs/products/{entity_id}')
+                except Exception:
+                    data = None
+            if not data:
+                data = job._call_api('catalogs/products', params={'limit': 500})
+            items = data if isinstance(data, list) else ([data] if data else [])
+            if entity_id:
+                items = [item for item in items if str(item.get('posProductId') or item.get('pos_product_id') or item.get('id')) == str(entity_id)] or items
+            if items:
+                job._sync_products_batch(items)
+
+        elif entity_type == 'customer':
+            data = None
+            if entity_id:
+                try:
+                    data = job._call_api(f'catalogs/customers/{entity_id}')
+                except Exception:
+                    data = None
+            if not data:
+                data = job._call_api('catalogs/customers', params={'limit': 500})
+            items = data if isinstance(data, list) else ([data] if data else [])
+            if entity_id:
+                items = [item for item in items if str(item.get('posCustomerId') or item.get('pos_customer_id') or item.get('id')) == str(entity_id)] or items
+            if items:
+                job._sync_customers_batch(items)
+
+        elif entity_type == 'supplier':
+            data = None
+            if entity_id:
+                try:
+                    data = job._call_api(f'catalogs/suppliers/{entity_id}')
+                except Exception:
+                    data = None
+            if not data:
+                data = job._call_api('catalogs/suppliers', params={'limit': 500})
+            items = data if isinstance(data, list) else ([data] if data else [])
+            if entity_id:
+                items = [item for item in items if str(item.get('posSupplierId') or item.get('pos_supplier_id') or item.get('id')) == str(entity_id)] or items
+            if items:
+                job._sync_suppliers_batch(items)
+
+        elif entity_type in ['warehouse', 'location']:
+            data = None
+            if entity_id:
+                try:
+                    data = job._call_api(f'catalogs/warehouses/{entity_id}')
+                except Exception:
+                    data = None
+            if not data:
+                data = job._call_api('catalogs/warehouses', params={'limit': 500})
+            items = data if isinstance(data, list) else ([data] if data else [])
+            if entity_id:
+                items = [item for item in items if str(item.get('posWarehouseId') or item.get('pos_warehouse_id') or item.get('id')) == str(entity_id)] or items
+            if items:
+                job._sync_locations_batch(items)
+
+        elif entity_type == 'employee':
+            data = None
+            if entity_id:
+                try:
+                    data = job._call_api(f'catalogs/employees/{entity_id}')
+                except Exception:
+                    data = None
+            if not data:
+                data = job._call_api('catalogs/employees', params={'limit': 500})
+            items = data if isinstance(data, list) else ([data] if data else [])
+            if entity_id:
+                items = [item for item in items if str(item.get('posEmployeeId') or item.get('pos_employee_id') or item.get('id')) == str(entity_id)] or items
+            if items:
+                job._sync_employees_batch(items)
+
+        elif entity_type == 'tax':
+            data = job._call_api('catalogs/taxes')
+            items = data if isinstance(data, list) else ([data] if data else [])
+            if items:
+                job._sync_taxes_batch(items)
+
+        elif entity_type == 'payment_method':
+            data = job._call_api('catalogs/payment-methods')
+            items = data if isinstance(data, list) else ([data] if data else [])
+            if items:
+                job._sync_payment_methods_batch(items)
+
+        elif entity_type in ['closure', 'ticket']:
+            job._sync_incomes()
+
+        return True
+

@@ -21,4 +21,8 @@ from . import plows_sync_staging
 from . import plows_field_mapping
 from . import pos_payment_method
 from . import pos_order
+from . import plows_webhook_log
+from . import plows_event_subscription_wizard
+
+
 

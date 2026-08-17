@@ -18,11 +18,35 @@
         </field>
     </record>
 
+    <!-- Vista de Búsqueda Personalizada con Filtros por Tipo de Contacto -->
+    <record id="view_plows_pos_partner_search" model="ir.ui.view">
+        <field name="name">res.partner.select.plows</field>
+        <field name="model">res.partner</field>
+        <field name="arch" type="xml">
+            <search string="Buscar Contactos">
+                <field name="name" filter_domain="['|', '|', ('name', 'ilike', self), ('parent_id', 'ilike', self), ('email', 'ilike', self)]"/>
+                <field name="x_id_pos"/>
+                <field name="email"/>
+                <field name="phone"/>
+                <separator/>
+                <filter string="Clientes" name="filter_customers" domain="[('customer_rank', '>', 0)]"/>
+                <filter string="Proveedores" name="filter_suppliers" domain="[('supplier_rank', '>', 0)]"/>
+                <filter string="Empleados" name="filter_employees" domain="[('employee', '=', True)]"/>
+                <separator/>
+                <filter string="Sincronizados POS" name="filter_synced" domain="[('x_id_pos', '!=', False)]"/>
+                <group>
+                    <filter string="Tipo de Empresa/Persona" name="group_company_type" context="{'group_by': 'is_company'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
     <!-- Acción para Clientes/Proveedores POS -->
     <record id="action_plows_pos_partners" model="ir.actions.act_window">
         <field name="name">Contactos</field>
         <field name="res_model">res.partner</field>
         <field name="view_mode">kanban,list,form</field>
+        <field name="search_view_id" ref="view_plows_pos_partner_search"/>
         <field name="domain">[('x_id_pos', '!=', False)]</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">

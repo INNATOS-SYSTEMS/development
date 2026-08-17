@@ -27,7 +27,7 @@
         <field name="code">model.search([('state', 'in', ['queued', 'running'])]).action_process_next_batch()</field>
         <field name="interval_number">1</field>
         <field name="interval_type">minutes</field>
-        <field name="active" eval="True"/>
+        <field name="active" eval="False"/>
     </record>
 
     <!-- Cron para Sincronización de Transacciones (Por Hora) -->

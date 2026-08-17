@@ -82,7 +82,7 @@
                 ¡No hay reglas de mapeo configuradas!
             </p>
             <p>
-                Haz clic en el botón <strong>Cargar Mapeos Predeterminados</strong> en la parte superior para inicializar automáticamente la correspondencia estándar de todos los catálogos.
+                Haz clic en el botón <strong>Cargar Predeterminados</strong> en la parte superior para inicializar automáticamente la correspondencia estándar de todos los catálogos.
             </p>
         </field>
     </record>
