@@ -63,6 +63,8 @@ Se conecta a las APIs expuestas por Plows POS para descargar y sincronizar:
     'assets': {
         'web.assets_backend': [
             'plows_pos_connector/static/src/js/plows_sync_bus.js',
+            'plows_pos_connector/static/src/js/plows_cxc_list_view.js',
+            'plows_pos_connector/static/src/xml/plows_cxc_list_view.xml',
             'plows_pos_connector/static/src/components/pos_sync_dashboard/pos_sync_dashboard.js',
             'plows_pos_connector/static/src/components/pos_sync_dashboard/pos_sync_dashboard.xml',
             'plows_pos_connector/static/src/components/pos_sync_dashboard/pos_sync_dashboard.scss',

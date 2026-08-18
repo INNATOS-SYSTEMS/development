@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="plows_pos_connector.PlowsCxcListView.Buttons" t-inherit="web.ListView.Buttons" t-inherit-mode="primary">
+        <xpath expr="/*" position="inside">
+            <button type="button" 
+                    class="btn btn-primary o_button_sync_cxc me-1" 
+                    t-on-click="onClickSyncReceivables">
+                <i class="fa fa-refresh me-1"/>Sincronizar
+            </button>
+        </xpath>
+    </t>
+</templates>
