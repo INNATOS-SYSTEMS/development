@@ -10,7 +10,7 @@
                 <page string="Plows POS" name="plows_pos_partner">
                     <group>
                         <group string="Sincronización">
-                            <field name="x_id_pos" readonly="1"/>
+                            <field name="x_id_pos" readonly="0"/>
                         </group>
                     </group>
                 </page>

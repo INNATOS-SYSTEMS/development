@@ -54,6 +54,7 @@ Se conecta a las APIs expuestas por Plows POS para descargar y sincronizar:
         'views/plows_dashboard_views.xml',
         'views/plows_webhook_log_views.xml',
         'views/plows_event_subscription_wizard_views.xml',
+        'views/plows_cxc_views.xml',
         # Menus — always last
         'views/plows_menus.xml',
 
