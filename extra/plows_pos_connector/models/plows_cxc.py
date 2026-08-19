@@ -57,6 +57,59 @@ class PlowsReceivableCxc(models.Model):
     pos_order_id = fields.Many2one('pos.order', string="Orden de POS en Odoo", help="Ticket de POS en Odoo vinculado")
     move_id = fields.Many2one('account.move', string="Factura en Odoo")
 
+    # Medidas Monetarias Computadas para la Vista Pivot (Proyección PLOWS)
+    total_vencido = fields.Monetary(string="Total Vencido", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    vencido_60_plus = fields.Monetary(string="+60 (Vencido)", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    vencido_31_60 = fields.Monetary(string="31-60 (Vencido)", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    vencido_16_30 = fields.Monetary(string="16-30 (Vencido)", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    vencido_8_15 = fields.Monetary(string="8-15 (Vencido)", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    vencido_1_7 = fields.Monetary(string="1-7 (Vencido)", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    
+    total_por_vencer = fields.Monetary(string="Total Por Vencer", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    hoy = fields.Monetary(string="Hoy", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    vencer_1_7 = fields.Monetary(string="1-7 (Por Vencer)", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    vencer_8_15 = fields.Monetary(string="8-15 (Por Vencer)", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    vencer_16_30 = fields.Monetary(string="16-30 (Por Vencer)", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    vencer_31_60 = fields.Monetary(string="31-60 (Por Vencer)", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+    vencer_60_plus = fields.Monetary(string="+60 (Por Vencer)", currency_field='currency_id', compute='_compute_bucket_measures', store=True)
+
+    @api.depends('saldo_pendiente', 'bucket_antiguedad', 'tipo_vencimiento', 'dias_atraso')
+    def _compute_bucket_measures(self):
+        for rec in self:
+            saldo = rec.saldo_pendiente or 0.0
+            b_ant = rec.bucket_antiguedad or ''
+            t_venc = rec.tipo_vencimiento or ''
+            dias = rec.dias_atraso or 0
+
+            rec.total_vencido = saldo if t_venc == 'vencido' else 0.0
+            rec.total_por_vencer = saldo if t_venc == 'por_vencer' else 0.0
+
+            rec.hoy = saldo if b_ant == 'hoy' else 0.0
+            rec.vencer_1_7 = saldo if b_ant == 'vencer_1_7' else 0.0
+            rec.vencer_8_15 = saldo if b_ant == 'vencer_8_15' else 0.0
+            rec.vencer_16_30 = saldo if b_ant == 'vencer_16_30' else 0.0
+            rec.vencer_31_60 = saldo if b_ant == 'vencer_31_60' else 0.0
+            rec.vencer_60_plus = saldo if b_ant in ('vencer_60_plus', 'vencer_30_mas') else 0.0
+
+            rec.vencido_1_7 = saldo if b_ant == 'vencido_1_7' else 0.0
+            rec.vencido_8_15 = saldo if b_ant == 'vencido_8_15' else 0.0
+            rec.vencido_16_30 = saldo if b_ant == 'vencido_16_30' else 0.0
+
+            # Manejo de vencido_31_60 y vencido_60_plus incluyendo clave legacy 'vencido_30_mas'
+            if b_ant == 'vencido_31_60':
+                rec.vencido_31_60 = saldo
+            elif b_ant == 'vencido_30_mas' and dias <= 60:
+                rec.vencido_31_60 = saldo
+            else:
+                rec.vencido_31_60 = 0.0
+
+            if b_ant in ('vencido_60_plus', 'vencido_60_mas'):
+                rec.vencido_60_plus = saldo
+            elif b_ant == 'vencido_30_mas' and dias > 60:
+                rec.vencido_60_plus = saldo
+            else:
+                rec.vencido_60_plus = 0.0
+
     @api.model
     def _get_api_config(self):
         ICPSudo = self.env['ir.config_parameter'].sudo()

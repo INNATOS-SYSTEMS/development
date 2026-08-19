@@ -1,12 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
-    <t t-name="plows_pos_connector.PlowsCxcListView.Buttons" t-inherit="web.ListView.Buttons" t-inherit-mode="primary">
-        <xpath expr="/*" position="inside">
-            <button type="button" 
-                    class="btn btn-primary o_button_sync_cxc me-1" 
+
+    <t t-name="plows_pos_connector.PlowsCxcPivotView.Buttons"
+       t-inherit="web.PivotView.Buttons"
+       t-inherit-mode="primary">
+
+        <xpath expr="//ReportViewMeasures" position="after">
+            <button type="button"
+                    class="btn btn-primary o_button_sync_cxc"
                     t-on-click="onClickSyncReceivables">
-                <i class="fa fa-refresh me-1"/>Sincronizar
+                <i class="fa fa-refresh me-1"/>
+                Actualizar
             </button>
         </xpath>
+
     </t>
+
 </templates>

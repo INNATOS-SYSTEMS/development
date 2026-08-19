@@ -121,3 +121,80 @@ class TestPlowsReceivableCxc(TransactionCase):
         self.assertFalse(rec.fecha_vencimiento)
         self.assertEqual(rec.almacen_mov_id, '')
         self.assertEqual(rec.factura_id_plows, '')
+
+    def test_bucket_measures_computation(self):
+        """ Verificar que los campos monetarios calculados asignen el saldo al bucket correcto y a su subtotal """
+        rec_vencido = self.CxcModel.create({
+            'cliente_plows_nombre': 'Cliente Vencido 1',
+            'saldo_pendiente': 1000.0,
+            'tipo_vencimiento': 'vencido',
+            'bucket_antiguedad': 'vencido_1_7',
+            'dias_atraso': 5,
+        })
+        self.assertEqual(rec_vencido.total_vencido, 1000.0)
+        self.assertEqual(rec_vencido.total_por_vencer, 0.0)
+        self.assertEqual(rec_vencido.vencido_1_7, 1000.0)
+        self.assertEqual(rec_vencido.vencido_8_15, 0.0)
+
+        rec_por_vencer = self.CxcModel.create({
+            'cliente_plows_nombre': 'Cliente Por Vencer 1',
+            'saldo_pendiente': 2500.0,
+            'tipo_vencimiento': 'por_vencer',
+            'bucket_antiguedad': 'vencer_16_30',
+            'dias_atraso': 0,
+        })
+        self.assertEqual(rec_por_vencer.total_vencido, 0.0)
+        self.assertEqual(rec_por_vencer.total_por_vencer, 2500.0)
+        self.assertEqual(rec_por_vencer.vencer_16_30, 2500.0)
+        self.assertEqual(rec_por_vencer.vencer_1_7, 0.0)
+
+        rec_hoy = self.CxcModel.create({
+            'cliente_plows_nombre': 'Cliente Hoy',
+            'saldo_pendiente': 800.0,
+            'tipo_vencimiento': 'por_vencer',
+            'bucket_antiguedad': 'hoy',
+            'dias_atraso': 0,
+        })
+        self.assertEqual(rec_hoy.total_por_vencer, 800.0)
+        self.assertEqual(rec_hoy.hoy, 800.0)
+
+    def test_vencido_30_mas_legacy_mapping(self):
+        """ Verificar mapeo de la clave legacy vencido_30_mas según dias_atraso """
+        rec_le_60 = self.CxcModel.create({
+            'cliente_plows_nombre': 'Cliente Legacy 45 dias',
+            'saldo_pendiente': 500.0,
+            'tipo_vencimiento': 'vencido',
+            'bucket_antiguedad': 'vencido_30_mas',
+            'dias_atraso': 45,
+        })
+        self.assertEqual(rec_le_60.vencido_31_60, 500.0)
+        self.assertEqual(rec_le_60.vencido_60_plus, 0.0)
+
+        rec_gt_60 = self.CxcModel.create({
+            'cliente_plows_nombre': 'Cliente Legacy 75 dias',
+            'saldo_pendiente': 1500.0,
+            'tipo_vencimiento': 'vencido',
+            'bucket_antiguedad': 'vencido_30_mas',
+            'dias_atraso': 75,
+        })
+        self.assertEqual(rec_gt_60.vencido_31_60, 0.0)
+        self.assertEqual(rec_gt_60.vencido_60_plus, 1500.0)
+
+    def test_no_double_counting(self):
+        """ Verificar que cada registro asigne su saldo a exactamente una medida de bucket """
+        rec = self.CxcModel.create({
+            'cliente_plows_nombre': 'Cliente Prueba Integridad',
+            'saldo_pendiente': 3000.0,
+            'tipo_vencimiento': 'vencido',
+            'bucket_antiguedad': 'vencido_8_15',
+            'dias_atraso': 10,
+        })
+        bucket_sum = (
+            rec.hoy + rec.vencer_1_7 + rec.vencer_8_15 + rec.vencer_16_30 +
+            rec.vencer_31_60 + rec.vencer_60_plus + rec.vencido_1_7 +
+            rec.vencido_8_15 + rec.vencido_16_30 + rec.vencido_31_60 + rec.vencido_60_plus
+        )
+        self.assertEqual(bucket_sum, rec.saldo_pendiente)
+        self.assertEqual(rec.total_vencido, rec.saldo_pendiente)
+        self.assertEqual(rec.total_por_vencer, 0.0)
+

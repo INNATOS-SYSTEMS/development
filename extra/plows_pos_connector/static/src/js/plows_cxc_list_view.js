@@ -1,11 +1,11 @@
 /** @odoo-module **/
 
 import { registry } from "@web/core/registry";
-import { listView } from "@web/views/list/list_view";
-import { ListController } from "@web/views/list/list_controller";
+import { pivotView } from "@web/views/pivot/pivot_view";
+import { PivotController } from "@web/views/pivot/pivot_controller";
 import { useService } from "@web/core/utils/hooks";
 
-export class PlowsCxcListController extends ListController {
+export class PlowsCxcPivotController extends PivotController {
     setup() {
         super.setup();
         this.actionService = useService("action");
@@ -21,10 +21,10 @@ export class PlowsCxcListController extends ListController {
     }
 }
 
-export const plowsCxcListView = {
-    ...listView,
-    Controller: PlowsCxcListController,
-    buttonTemplate: "plows_pos_connector.PlowsCxcListView.Buttons",
+export const plowsCxcPivotView = {
+    ...pivotView,
+    Controller: PlowsCxcPivotController,
+    buttonTemplate: "plows_pos_connector.PlowsCxcPivotView.Buttons",
 };
 
-registry.category("views").add("plows_cxc_list_view", plowsCxcListView);
+registry.category("views").add("plows_cxc_pivot_view", plowsCxcPivotView);
